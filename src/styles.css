@@ -54,13 +54,14 @@ button {
 }
 
 .toolbar {
-  height: 56px;
-  padding: 0 20px;
+  min-height: 56px;
+  padding: 10px 20px;
   border-bottom: 1px solid var(--border);
   background: #f7f7f8;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 20px;
 }
 
 .toolbar__brand h1 {
@@ -68,6 +69,44 @@ button {
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+.toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.toolbar__metrics {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  background: #fbfbfc;
+}
+
+.toolbar__metric {
+  min-width: 132px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.toolbar__metric + .toolbar__metric {
+  border-left: 1px solid var(--border);
+}
+
+.toolbar__metric span {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.toolbar__metric strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .toolbar__eyebrow,
@@ -93,7 +132,7 @@ button {
 
 .canvas-scroll {
   width: 100%;
-  height: calc(100vh - 56px);
+  height: calc(100vh - 77px);
   overflow: auto;
 }
 
@@ -197,6 +236,44 @@ button {
   white-space: pre-wrap;
 }
 
+.flow-node__metrics {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.flow-node__metrics div {
+  margin: 0;
+}
+
+.flow-node__metrics dt {
+  margin: 0 0 4px;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.flow-node__metrics dd {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.flow-node__status {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-strong);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .editor {
   position: absolute;
   top: 24px;
@@ -254,6 +331,25 @@ button {
 }
 
 .field span {
+  font-size: 12px;
+  color: var(--muted-strong);
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.checkbox-field input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #202228;
+}
+
+.checkbox-field span {
   font-size: 12px;
   color: var(--muted-strong);
 }
@@ -329,6 +425,16 @@ button {
 }
 
 @media (max-width: 920px) {
+  .toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .toolbar__actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
   .editor {
     top: auto;
     right: 0;

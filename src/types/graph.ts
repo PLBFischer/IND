@@ -2,6 +2,9 @@ export type FlowNode = {
   id: string;
   title: string;
   content: string;
+  cost: number;
+  duration: number;
+  completed: boolean;
   x: number;
   y: number;
 };

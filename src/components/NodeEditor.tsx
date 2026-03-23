@@ -6,7 +6,13 @@ type NodeEditorProps = {
   node: FlowNode | null;
   isConnectMode: boolean;
   onClose: () => void;
-  onSave: (values: { title: string; content: string }) => void;
+  onSave: (values: {
+    title: string;
+    content: string;
+    cost: number;
+    duration: number;
+    completed: boolean;
+  }) => void;
   onDelete: () => void;
   onStartConnect: () => void;
   onCancelConnect: () => void;
@@ -24,12 +30,18 @@ export function NodeEditor({
 }: NodeEditorProps) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [cost, setCost] = useState('0');
+  const [duration, setDuration] = useState('0');
+  const [completed, setCompleted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (mode === 'edit' && node) {
       setTitle(node.title);
       setContent(node.content);
+      setCost(`${node.cost}`);
+      setDuration(`${node.duration}`);
+      setCompleted(node.completed);
       setError(null);
       return;
     }
@@ -37,6 +49,9 @@ export function NodeEditor({
     if (mode === 'create') {
       setTitle('');
       setContent('');
+      setCost('0');
+      setDuration('0');
+      setCompleted(false);
       setError(null);
     }
   }, [mode, node]);
@@ -79,9 +94,20 @@ export function NodeEditor({
             return;
           }
 
+          const nextCost = Number(cost);
+          const nextDuration = Number(duration);
+
+          if (!Number.isFinite(nextCost) || !Number.isFinite(nextDuration)) {
+            setError('Cost and duration must be valid numbers.');
+            return;
+          }
+
           onSave({
             title: nextTitle,
             content: content.trim(),
+            cost: nextCost,
+            duration: nextDuration,
+            completed,
           });
         }}
       >
@@ -108,6 +134,39 @@ export function NodeEditor({
             placeholder="Description: Joins customer orders"
           />
         </label>
+
+        <label className="field">
+          <span>Cost (in USD)</span>
+          <input
+            type="number"
+            step="any"
+            value={cost}
+            onChange={(event) => setCost(event.target.value)}
+            placeholder="0"
+          />
+        </label>
+
+        <label className="field">
+          <span>Duration (in days)</span>
+          <input
+            type="number"
+            step="any"
+            value={duration}
+            onChange={(event) => setDuration(event.target.value)}
+            placeholder="0"
+          />
+        </label>
+
+        {isEditing ? (
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={completed}
+              onChange={(event) => setCompleted(event.target.checked)}
+            />
+            <span>Completed</span>
+          </label>
+        ) : null}
 
         {error ? <p className="field-error">{error}</p> : null}
 

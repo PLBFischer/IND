@@ -1,5 +1,6 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { NODE_HEADER_HEIGHT, NODE_MIN_HEIGHT, NODE_WIDTH } from '../utils/constants';
+import { formatMetric } from '../utils/metrics';
 import type { FlowNode as FlowNodeType } from '../types/graph';
 
 type FlowNodeProps = {
@@ -52,6 +53,20 @@ export function FlowNode({
       </div>
       <div className="flow-node__body">
         <p>{node.content}</p>
+        {node.completed ? (
+          <div className="flow-node__status">Completed</div>
+        ) : (
+          <dl className="flow-node__metrics">
+            <div>
+              <dt>Cost</dt>
+              <dd>${formatMetric(node.cost)}</dd>
+            </div>
+            <div>
+              <dt>Duration</dt>
+              <dd>{formatMetric(node.duration)} days</dd>
+            </div>
+          </dl>
+        )}
       </div>
     </button>
   );

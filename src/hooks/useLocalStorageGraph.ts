@@ -13,6 +13,9 @@ const defaultState: GraphState = {
       id: 'node_orders',
       title: 'Orders',
       content: 'Description: Joins customer orders',
+      cost: 2400,
+      duration: 6,
+      completed: false,
       x: 180,
       y: 160,
     },
@@ -20,6 +23,9 @@ const defaultState: GraphState = {
       id: 'node_enrichment',
       title: 'Enrichment',
       content: 'Description: Normalizes customer attributes',
+      cost: 1800,
+      duration: 4,
+      completed: false,
       x: 540,
       y: 320,
     },
@@ -48,7 +54,15 @@ const readState = (): GraphState => {
     if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) {
       return defaultState;
     }
-    return parsed;
+    return {
+      nodes: parsed.nodes.map((node) => ({
+        ...node,
+        cost: typeof node.cost === 'number' ? node.cost : 0,
+        duration: typeof node.duration === 'number' ? node.duration : 0,
+        completed: typeof node.completed === 'boolean' ? node.completed : false,
+      })),
+      edges: parsed.edges,
+    };
   } catch {
     return defaultState;
   }

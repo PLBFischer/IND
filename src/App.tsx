@@ -6,6 +6,7 @@ import { Toolbar } from './components/Toolbar';
 import { useLocalStorageGraph } from './hooks/useLocalStorageGraph';
 import type { EditorMode, FlowNode } from './types/graph';
 import { createId, edgeExists, getNodeById } from './utils/graph';
+import { formatMetric, getTotalCost, getTotalDuration } from './utils/metrics';
 
 type DragState = {
   nodeId: string;
@@ -33,6 +34,8 @@ function App() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const selectedNode = getNodeById(nodes, selectedNodeId);
+  const totalCost = formatMetric(getTotalCost(nodes));
+  const totalDuration = formatMetric(getTotalDuration(nodes, edges));
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -147,7 +150,13 @@ function App() {
     setEditorMode('edit');
   };
 
-  const handleSaveNode = (values: { title: string; content: string }) => {
+  const handleSaveNode = (values: {
+    title: string;
+    content: string;
+    cost: number;
+    duration: number;
+    completed: boolean;
+  }) => {
     if (editorMode === 'create') {
       const createdNode: FlowNode = {
         id: createId('node'),
@@ -223,7 +232,11 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Toolbar onAddNode={openCreateEditor} />
+      <Toolbar
+        totalCost={`$${totalCost}`}
+        totalDuration={totalDuration === 'NaN' ? 'NaN' : `${totalDuration} days`}
+        onAddNode={openCreateEditor}
+      />
       <div className="workspace">
         <Canvas
           nodes={nodes}
