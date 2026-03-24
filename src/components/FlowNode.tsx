@@ -53,6 +53,12 @@ export function FlowNode({
       </div>
       <div className="flow-node__body">
         <p>{node.content}</p>
+        {node.operators.length > 0 ? (
+          <div className="flow-node__operators">
+            <span>{node.operators.length > 1 ? 'Operators' : 'Operator'}</span>
+            <strong>{node.operators.join(', ')}</strong>
+          </div>
+        ) : null}
         {node.completed ? (
           <div className="flow-node__status">Completed</div>
         ) : (

@@ -4,6 +4,7 @@ import type { EditorMode, FlowNode } from '../types/graph';
 type NodeEditorProps = {
   mode: EditorMode;
   node: FlowNode | null;
+  personnel: string[];
   isConnectMode: boolean;
   onClose: () => void;
   onSave: (values: {
@@ -11,6 +12,7 @@ type NodeEditorProps = {
     content: string;
     cost: number;
     duration: number;
+    operators: string[];
     completed: boolean;
   }) => void;
   onDelete: () => void;
@@ -21,6 +23,7 @@ type NodeEditorProps = {
 export function NodeEditor({
   mode,
   node,
+  personnel,
   isConnectMode,
   onClose,
   onSave,
@@ -32,6 +35,8 @@ export function NodeEditor({
   const [content, setContent] = useState('');
   const [cost, setCost] = useState('0');
   const [duration, setDuration] = useState('0');
+  const [operators, setOperators] = useState<string[]>([]);
+  const [isOperatorMenuOpen, setIsOperatorMenuOpen] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +46,8 @@ export function NodeEditor({
       setContent(node.content);
       setCost(`${node.cost}`);
       setDuration(`${node.duration}`);
+      setOperators(node.operators);
+      setIsOperatorMenuOpen(false);
       setCompleted(node.completed);
       setError(null);
       return;
@@ -51,10 +58,18 @@ export function NodeEditor({
       setContent('');
       setCost('0');
       setDuration('0');
+      setOperators([]);
+      setIsOperatorMenuOpen(false);
       setCompleted(false);
       setError(null);
     }
   }, [mode, node]);
+
+  useEffect(() => {
+    setOperators((current) =>
+      current.filter((operator) => personnel.includes(operator)),
+    );
+  }, [personnel]);
 
   if (mode === 'closed') {
     return null;
@@ -107,6 +122,7 @@ export function NodeEditor({
             content: content.trim(),
             cost: nextCost,
             duration: nextDuration,
+            operators,
             completed,
           });
         }}
@@ -156,6 +172,45 @@ export function NodeEditor({
             placeholder="0"
           />
         </label>
+
+        <div className="field">
+          <span>Operator</span>
+          <div className="multi-select">
+            <button
+              type="button"
+              className={`multi-select__trigger ${
+                isOperatorMenuOpen ? 'multi-select__trigger--open' : ''
+              }`}
+              onClick={() => setIsOperatorMenuOpen((current) => !current)}
+            >
+              {operators.length > 0 ? operators.join(', ') : 'Select operators'}
+            </button>
+            {isOperatorMenuOpen ? (
+              <div className="multi-select__menu">
+                {personnel.length === 0 ? (
+                  <p className="multi-select__empty">Add personnel to assign operators.</p>
+                ) : (
+                  personnel.map((person) => (
+                    <label key={person} className="multi-select__option">
+                      <input
+                        type="checkbox"
+                        checked={operators.includes(person)}
+                        onChange={(event) => {
+                          setOperators((current) =>
+                            event.target.checked
+                              ? [...current, person]
+                              : current.filter((operator) => operator !== person),
+                          );
+                        }}
+                      />
+                      <span>{person}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </div>
+        </div>
 
         {isEditing ? (
           <label className="checkbox-field">

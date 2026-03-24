@@ -4,6 +4,7 @@ export type FlowNode = {
   content: string;
   cost: number;
   duration: number;
+  operators: string[];
   completed: boolean;
   x: number;
   y: number;

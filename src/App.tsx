@@ -25,7 +25,8 @@ const INITIAL_NODE_POSITION = {
 };
 
 function App() {
-  const { nodes, edges, setNodes, setEdges } = useLocalStorageGraph();
+  const { nodes, edges, personnel, setNodes, setEdges, setPersonnel } =
+    useLocalStorageGraph();
   const [editorMode, setEditorMode] = useState<EditorMode>('closed');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [connectSourceId, setConnectSourceId] = useState<string | null>(null);
@@ -155,6 +156,7 @@ function App() {
     content: string;
     cost: number;
     duration: number;
+    operators: string[];
     completed: boolean;
   }) => {
     if (editorMode === 'create') {
@@ -183,6 +185,26 @@ function App() {
         ),
       );
     }
+  };
+
+  const handleAddPerson = (name: string) => {
+    setPersonnel((current) => {
+      if (current.some((person) => person.toLowerCase() === name.toLowerCase())) {
+        return current;
+      }
+
+      return [...current, name];
+    });
+  };
+
+  const handleRemovePerson = (name: string) => {
+    setPersonnel((current) => current.filter((person) => person !== name));
+    setNodes((current) =>
+      current.map((node) => ({
+        ...node,
+        operators: node.operators.filter((operator) => operator !== name),
+      })),
+    );
   };
 
   const handleDeleteNode = () => {
@@ -235,6 +257,9 @@ function App() {
       <Toolbar
         totalCost={`$${totalCost}`}
         totalDuration={totalDuration === 'NaN' ? 'NaN' : `${totalDuration} days`}
+        personnel={personnel}
+        onAddPerson={handleAddPerson}
+        onRemovePerson={handleRemovePerson}
         onAddNode={openCreateEditor}
       />
       <div className="workspace">
@@ -252,6 +277,7 @@ function App() {
         <NodeEditor
           mode={editorMode}
           node={selectedNode}
+          personnel={personnel}
           isConnectMode={Boolean(connectSourceId)}
           onClose={closeEditor}
           onSave={handleSaveNode}
