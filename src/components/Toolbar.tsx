@@ -1,8 +1,7 @@
 import { PersonnelPanel } from './PersonnelPanel';
 
 type ToolbarProps = {
-  totalCost: string;
-  totalDuration: string;
+  plannedCost: string;
   plannedDuration: string;
   personnel: string[];
   isAssigning: boolean;
@@ -15,8 +14,7 @@ type ToolbarProps = {
 };
 
 export function Toolbar({
-  totalCost,
-  totalDuration,
+  plannedCost,
   plannedDuration,
   personnel,
   isAssigning,
@@ -36,12 +34,8 @@ export function Toolbar({
       <div className="toolbar__actions">
         <div className="toolbar__metrics" aria-label="Flow metrics">
           <div className="toolbar__metric">
-            <span>Total Cost</span>
-            <strong>{totalCost}</strong>
-          </div>
-          <div className="toolbar__metric">
-            <span>Total Duration</span>
-            <strong>{totalDuration}</strong>
+            <span>Planned Cost</span>
+            <strong>{plannedCost}</strong>
           </div>
           <div className="toolbar__metric">
             <span>Planned Duration</span>

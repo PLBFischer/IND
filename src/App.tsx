@@ -366,8 +366,7 @@ function App() {
   return (
     <div className="app-shell">
       <Toolbar
-        totalCost={`$${totalCost}`}
-        totalDuration={totalDuration === 'NaN' ? 'NaN' : `${totalDuration} days`}
+        plannedCost={`$${totalCost}`}
         plannedDuration={plannedDuration}
         personnel={personnel}
         isAssigning={isAssigning}
