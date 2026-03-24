@@ -256,7 +256,7 @@ button {
   padding-top: 12px;
   border-top: 1px solid var(--border);
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -435,9 +435,37 @@ button {
   background: var(--surface);
 }
 
+.personnel-panel__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
 .personnel-panel__list span {
   font-size: 13px;
   color: var(--text);
+}
+
+.personnel-panel__hours {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.personnel-panel__hours span {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.personnel-panel__hours input {
+  width: 92px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 8px 10px;
 }
 
 .editor__form {

@@ -1,17 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
+import type { Personnel } from '../types/graph';
 
 type PersonnelPanelProps = {
-  personnel: string[];
-  onAddPerson: (name: string) => void;
+  personnel: Personnel[];
+  onAddPerson: (name: string, hoursPerWeek: number) => void;
+  onUpdatePersonHours: (name: string, hoursPerWeek: number) => void;
   onRemovePerson: (name: string) => void;
 };
 
 export function PersonnelPanel({
   personnel,
   onAddPerson,
+  onUpdatePersonHours,
   onRemovePerson,
 }: PersonnelPanelProps) {
   const [name, setName] = useState('');
+  const [hoursPerWeek, setHoursPerWeek] = useState('40');
   const [isOpen, setIsOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
@@ -54,18 +58,29 @@ export function PersonnelPanel({
               event.preventDefault();
 
               const nextName = name.trim();
-              if (!nextName) {
+              const nextHoursPerWeek = Number(hoursPerWeek);
+
+              if (!nextName || !Number.isFinite(nextHoursPerWeek)) {
                 return;
               }
 
-              onAddPerson(nextName);
+              onAddPerson(nextName, nextHoursPerWeek);
               setName('');
+              setHoursPerWeek('40');
             }}
           >
             <input
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="Add person"
+            />
+            <input
+              type="number"
+              step="any"
+              min="0"
+              value={hoursPerWeek}
+              onChange={(event) => setHoursPerWeek(event.target.value)}
+              placeholder="Hours/week"
             />
             <button type="submit" className="button button--primary">
               Add
@@ -77,13 +92,32 @@ export function PersonnelPanel({
           ) : (
             <ul className="personnel-panel__list">
               {personnel.map((person) => (
-                <li key={person}>
-                  <span>{person}</span>
+                <li key={person.name}>
+                  <div className="personnel-panel__item">
+                    <span>{person.name}</span>
+                    <label className="personnel-panel__hours">
+                      <span>Hours/Week</span>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={person.hoursPerWeek}
+                        onChange={(event) => {
+                          const nextHoursPerWeek = Number(event.target.value);
+                          if (!Number.isFinite(nextHoursPerWeek)) {
+                            return;
+                          }
+
+                          onUpdatePersonHours(person.name, nextHoursPerWeek);
+                        }}
+                      />
+                    </label>
+                  </div>
                   <button
                     type="button"
                     className="icon-button"
-                    onClick={() => onRemovePerson(person)}
-                    aria-label={`Remove ${person}`}
+                    onClick={() => onRemovePerson(person.name)}
+                    aria-label={`Remove ${person.name}`}
                   >
                     Remove
                   </button>

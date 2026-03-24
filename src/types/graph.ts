@@ -1,9 +1,15 @@
+export type Personnel = {
+  name: string;
+  hoursPerWeek: number;
+};
+
 export type FlowNode = {
   id: string;
   title: string;
   content: string;
   cost: number;
   duration: number;
+  workHoursPerWeek: number;
   operators: string[];
   completed: boolean;
   x: number;

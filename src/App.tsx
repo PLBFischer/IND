@@ -6,7 +6,7 @@ import { Toolbar } from './components/Toolbar';
 import { useLocalStorageGraph } from './hooks/useLocalStorageGraph';
 import type { EditorMode, FlowNode, ScheduleResult } from './types/graph';
 import { createId, edgeExists, getNodeById } from './utils/graph';
-import { formatMetric, getTotalCost, getTotalDuration } from './utils/metrics';
+import { formatMetric, getTotalCost } from './utils/metrics';
 
 type DragState = {
   nodeId: string;
@@ -48,13 +48,16 @@ function App() {
 
   const selectedNode = getNodeById(nodes, selectedNodeId);
   const totalCost = formatMetric(getTotalCost(nodes));
-  const totalDuration = formatMetric(getTotalDuration(nodes, edges));
   const schedulingInput = {
-    personnel,
+    personnel: personnel.map((person) => ({
+      name: person.name,
+      hoursPerWeek: person.hoursPerWeek,
+    })),
     nodes: nodes.map((node) => ({
       id: node.id,
       title: node.title,
       duration: node.duration,
+      workHoursPerWeek: node.workHoursPerWeek,
       operators: node.operators,
       completed: node.completed,
     })),
@@ -62,7 +65,7 @@ function App() {
   };
   const schedulingSignature = JSON.stringify(schedulingInput);
   const plannedDuration = isAssignedView && schedule
-    ? `${formatMetric(schedule.makespan)} days`
+    ? `${formatMetric(schedule.makespan)} weeks`
     : 'Not run';
   const scheduleByNodeId = Object.fromEntries(
     (isAssignedView ? schedule?.nodes ?? [] : []).map((node) => [node.nodeId, node]),
@@ -206,6 +209,7 @@ function App() {
     content: string;
     cost: number;
     duration: number;
+    workHoursPerWeek: number;
     operators: string[];
     completed: boolean;
   }) => {
@@ -237,18 +241,31 @@ function App() {
     }
   };
 
-  const handleAddPerson = (name: string) => {
+  const handleAddPerson = (name: string, hoursPerWeek: number) => {
     setPersonnel((current) => {
-      if (current.some((person) => person.toLowerCase() === name.toLowerCase())) {
+      if (current.some((person) => person.name.toLowerCase() === name.toLowerCase())) {
         return current;
       }
 
-      return [...current, name];
+      return [...current, { name, hoursPerWeek }];
     });
   };
 
+  const handleUpdatePersonHours = (name: string, hoursPerWeek: number) => {
+    setPersonnel((current) =>
+      current.map((person) =>
+        person.name === name
+          ? {
+              ...person,
+              hoursPerWeek,
+            }
+          : person,
+      ),
+    );
+  };
+
   const handleRemovePerson = (name: string) => {
-    setPersonnel((current) => current.filter((person) => person !== name));
+    setPersonnel((current) => current.filter((person) => person.name !== name));
     setNodes((current) =>
       current.map((node) => ({
         ...node,
@@ -373,6 +390,7 @@ function App() {
         canAssign={nodes.length > 0}
         isAssignedView={isAssignedView}
         onAddPerson={handleAddPerson}
+        onUpdatePersonHours={handleUpdatePersonHours}
         onRemovePerson={handleRemovePerson}
         onAssign={handleAssign}
         onAddNode={openCreateEditor}

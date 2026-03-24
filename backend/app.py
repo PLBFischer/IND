@@ -13,6 +13,7 @@ class NodePayload(BaseModel):
     id: str
     title: str
     duration: float = Field(ge=0)
+    workHoursPerWeek: float = Field(ge=0)
     operators: list[str] = Field(default_factory=list)
     completed: bool = False
 
@@ -23,8 +24,13 @@ class EdgePayload(BaseModel):
     target: str
 
 
+class PersonnelPayload(BaseModel):
+    name: str
+    hoursPerWeek: float = Field(ge=0)
+
+
 class ScheduleRequest(BaseModel):
-    personnel: list[str] = Field(default_factory=list)
+    personnel: list[PersonnelPayload] = Field(default_factory=list)
     nodes: list[NodePayload] = Field(default_factory=list)
     edges: list[EdgePayload] = Field(default_factory=list)
 
@@ -110,12 +116,22 @@ def schedule(payload: ScheduleRequest) -> ScheduleResponse:
 
     validate_acyclic(payload.nodes, payload.edges)
 
-    scale = 10 ** max(decimal_places(node.duration) for node in payload.nodes)
+    scale = 10 ** max(
+        [
+            *(decimal_places(node.duration) for node in payload.nodes),
+            *(decimal_places(node.workHoursPerWeek) for node in payload.nodes),
+            *(decimal_places(person.hoursPerWeek) for person in payload.personnel),
+            0,
+        ]
+    )
     scale = max(scale, 1)
 
     active_nodes = [node for node in payload.nodes if not node.completed]
     active_node_ids = {node.id for node in active_nodes}
-    personnel_set = set(payload.personnel)
+    personnel_capacity = {
+        person.name: scale_value(person.hoursPerWeek, scale)
+        for person in payload.personnel
+    }
     diagnostics: list[str] = []
 
     if not active_nodes:
@@ -126,7 +142,9 @@ def schedule(payload: ScheduleRequest) -> ScheduleResponse:
                 ScheduledNode(
                     nodeId=node.id,
                     assignedOperator=None,
-                    usesPersonnel=bool([op for op in node.operators if op in personnel_set]),
+                    usesPersonnel=bool(
+                        [op for op in node.operators if op in personnel_capacity]
+                    ),
                     start=0,
                     finish=0,
                 )
@@ -141,12 +159,14 @@ def schedule(payload: ScheduleRequest) -> ScheduleResponse:
     end_vars: dict[str, cp_model.IntVar] = {}
     assignment_vars: dict[tuple[str, str], cp_model.BoolVar] = {}
     operator_intervals: dict[str, list[cp_model.IntervalVar]] = {
-        operator: [] for operator in payload.personnel
+        operator: [] for operator in personnel_capacity
     }
+    operator_demands: dict[str, list[int]] = {operator: [] for operator in personnel_capacity}
     eligible_operators_by_node: dict[str, list[str]] = {}
 
     for node in active_nodes:
         duration = scale_value(node.duration, scale)
+        work_hours_per_week = scale_value(node.workHoursPerWeek, scale)
         start = model.NewIntVar(0, horizon, f"start_{node.id}")
         end = model.NewIntVar(0, horizon, f"end_{node.id}")
         model.Add(end == start + duration)
@@ -155,7 +175,7 @@ def schedule(payload: ScheduleRequest) -> ScheduleResponse:
         end_vars[node.id] = end
 
         eligible_operators = [
-            operator for operator in node.operators if operator in personnel_set
+            operator for operator in node.operators if operator in personnel_capacity
         ]
         eligible_operators_by_node[node.id] = eligible_operators
 
@@ -172,6 +192,7 @@ def schedule(payload: ScheduleRequest) -> ScheduleResponse:
                 )
                 assignment_vars[(node.id, operator)] = presence
                 operator_intervals[operator].append(interval)
+                operator_demands[operator].append(work_hours_per_week)
                 presences.append(presence)
 
             model.AddExactlyOne(presences)
@@ -182,7 +203,11 @@ def schedule(payload: ScheduleRequest) -> ScheduleResponse:
 
     for operator, intervals in operator_intervals.items():
         if intervals:
-            model.AddNoOverlap(intervals)
+            model.AddCumulative(
+                intervals,
+                operator_demands[operator],
+                personnel_capacity[operator],
+            )
 
     for edge in payload.edges:
         if edge.target not in active_node_ids:
@@ -220,7 +245,9 @@ def schedule(payload: ScheduleRequest) -> ScheduleResponse:
                 ScheduledNode(
                     nodeId=node.id,
                     assignedOperator=None,
-                    usesPersonnel=bool([op for op in node.operators if op in personnel_set]),
+                    usesPersonnel=bool(
+                        [op for op in node.operators if op in personnel_capacity]
+                    ),
                     start=0,
                     finish=0,
                 )

@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { FlowEdge, FlowNode } from '../types/graph';
+import type { FlowEdge, FlowNode, Personnel } from '../types/graph';
 import { STORAGE_KEY } from '../utils/constants';
 
 type GraphState = {
   nodes: FlowNode[];
   edges: FlowEdge[];
-  personnel: string[];
+  personnel: Personnel[];
 };
 
 const defaultState: GraphState = {
@@ -16,6 +16,7 @@ const defaultState: GraphState = {
       content: 'Description: Joins customer orders',
       cost: 2400,
       duration: 6,
+      workHoursPerWeek: 16,
       operators: ['Avery Chen'],
       completed: false,
       x: 180,
@@ -27,6 +28,7 @@ const defaultState: GraphState = {
       content: 'Description: Normalizes customer attributes',
       cost: 1800,
       duration: 4,
+      workHoursPerWeek: 20,
       operators: ['Morgan Patel', 'Sam Rivera'],
       completed: false,
       x: 540,
@@ -40,7 +42,11 @@ const defaultState: GraphState = {
       target: 'node_enrichment',
     },
   ],
-  personnel: ['Avery Chen', 'Morgan Patel', 'Sam Rivera'],
+  personnel: [
+    { name: 'Avery Chen', hoursPerWeek: 40 },
+    { name: 'Morgan Patel', hoursPerWeek: 40 },
+    { name: 'Sam Rivera', hoursPerWeek: 40 },
+  ],
 };
 
 const readState = (): GraphState => {
@@ -67,6 +73,8 @@ const readState = (): GraphState => {
         ...node,
         cost: typeof node.cost === 'number' ? node.cost : 0,
         duration: typeof node.duration === 'number' ? node.duration : 0,
+        workHoursPerWeek:
+          typeof node.workHoursPerWeek === 'number' ? node.workHoursPerWeek : 40,
         operators: Array.isArray(node.operators)
           ? node.operators.filter((operator): operator is string => typeof operator === 'string')
           : [],
@@ -74,7 +82,27 @@ const readState = (): GraphState => {
       })),
       edges: parsed.edges,
       personnel: Array.isArray(parsed.personnel)
-        ? parsed.personnel.filter((person): person is string => typeof person === 'string')
+        ? parsed.personnel.flatMap((person) => {
+            if (typeof person === 'string') {
+              return [{ name: person, hoursPerWeek: 40 }];
+            }
+
+            if (
+              person &&
+              typeof person === 'object' &&
+              typeof person.name === 'string'
+            ) {
+              return [
+                {
+                  name: person.name,
+                  hoursPerWeek:
+                    typeof person.hoursPerWeek === 'number' ? person.hoursPerWeek : 40,
+                },
+              ];
+            }
+
+            return [];
+          })
         : defaultState.personnel,
     };
   } catch {
@@ -105,7 +133,9 @@ export const useLocalStorageGraph = () => {
         edges: typeof updater === 'function' ? updater(current.edges) : updater,
       }));
     },
-    setPersonnel: (updater: string[] | ((current: string[]) => string[])) => {
+    setPersonnel: (
+      updater: Personnel[] | ((current: Personnel[]) => Personnel[]),
+    ) => {
       setState((current) => ({
         ...current,
         personnel:

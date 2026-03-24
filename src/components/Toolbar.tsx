@@ -1,13 +1,15 @@
+import type { Personnel } from '../types/graph';
 import { PersonnelPanel } from './PersonnelPanel';
 
 type ToolbarProps = {
   plannedCost: string;
   plannedDuration: string;
-  personnel: string[];
+  personnel: Personnel[];
   isAssigning: boolean;
   canAssign: boolean;
   isAssignedView: boolean;
-  onAddPerson: (name: string) => void;
+  onAddPerson: (name: string, hoursPerWeek: number) => void;
+  onUpdatePersonHours: (name: string, hoursPerWeek: number) => void;
   onRemovePerson: (name: string) => void;
   onAssign: () => void;
   onAddNode: () => void;
@@ -21,6 +23,7 @@ export function Toolbar({
   canAssign,
   isAssignedView,
   onAddPerson,
+  onUpdatePersonHours,
   onRemovePerson,
   onAssign,
   onAddNode,
@@ -45,6 +48,7 @@ export function Toolbar({
         <PersonnelPanel
           personnel={personnel}
           onAddPerson={onAddPerson}
+          onUpdatePersonHours={onUpdatePersonHours}
           onRemovePerson={onRemovePerson}
         />
         <button

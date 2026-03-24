@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import type { EditorMode, FlowNode } from '../types/graph';
+import type { EditorMode, FlowNode, Personnel } from '../types/graph';
 
 type NodeEditorProps = {
   mode: EditorMode;
   node: FlowNode | null;
-  personnel: string[];
+  personnel: Personnel[];
   isConnectMode: boolean;
   onClose: () => void;
   onSave: (values: {
@@ -12,6 +12,7 @@ type NodeEditorProps = {
     content: string;
     cost: number;
     duration: number;
+    workHoursPerWeek: number;
     operators: string[];
     completed: boolean;
   }) => void;
@@ -35,6 +36,7 @@ export function NodeEditor({
   const [content, setContent] = useState('');
   const [cost, setCost] = useState('0');
   const [duration, setDuration] = useState('0');
+  const [workHoursPerWeek, setWorkHoursPerWeek] = useState('40');
   const [operators, setOperators] = useState<string[]>([]);
   const [isOperatorMenuOpen, setIsOperatorMenuOpen] = useState(false);
   const [completed, setCompleted] = useState(false);
@@ -46,6 +48,7 @@ export function NodeEditor({
       setContent(node.content);
       setCost(`${node.cost}`);
       setDuration(`${node.duration}`);
+      setWorkHoursPerWeek(`${node.workHoursPerWeek}`);
       setOperators(node.operators);
       setIsOperatorMenuOpen(false);
       setCompleted(node.completed);
@@ -58,6 +61,7 @@ export function NodeEditor({
       setContent('');
       setCost('0');
       setDuration('0');
+      setWorkHoursPerWeek('40');
       setOperators([]);
       setIsOperatorMenuOpen(false);
       setCompleted(false);
@@ -67,7 +71,7 @@ export function NodeEditor({
 
   useEffect(() => {
     setOperators((current) =>
-      current.filter((operator) => personnel.includes(operator)),
+      current.filter((operator) => personnel.some((person) => person.name === operator)),
     );
   }, [personnel]);
 
@@ -111,9 +115,14 @@ export function NodeEditor({
 
           const nextCost = Number(cost);
           const nextDuration = Number(duration);
+          const nextWorkHoursPerWeek = Number(workHoursPerWeek);
 
-          if (!Number.isFinite(nextCost) || !Number.isFinite(nextDuration)) {
-            setError('Cost and duration must be valid numbers.');
+          if (
+            !Number.isFinite(nextCost) ||
+            !Number.isFinite(nextDuration) ||
+            !Number.isFinite(nextWorkHoursPerWeek)
+          ) {
+            setError('Cost, duration, and weekly work hours must be valid numbers.');
             return;
           }
 
@@ -122,6 +131,7 @@ export function NodeEditor({
             content: content.trim(),
             cost: nextCost,
             duration: nextDuration,
+            workHoursPerWeek: nextWorkHoursPerWeek,
             operators,
             completed,
           });
@@ -163,13 +173,25 @@ export function NodeEditor({
         </label>
 
         <label className="field">
-          <span>Duration (in days)</span>
+          <span>Duration (in weeks)</span>
           <input
             type="number"
             step="any"
             value={duration}
             onChange={(event) => setDuration(event.target.value)}
             placeholder="0"
+          />
+        </label>
+
+        <label className="field">
+          <span>Work Required Per Week (hours)</span>
+          <input
+            type="number"
+            step="any"
+            min="0"
+            value={workHoursPerWeek}
+            onChange={(event) => setWorkHoursPerWeek(event.target.value)}
+            placeholder="40"
           />
         </label>
 
@@ -193,19 +215,19 @@ export function NodeEditor({
                   <p className="multi-select__empty">Add personnel to assign operators.</p>
                 ) : (
                   personnel.map((person) => (
-                    <label key={person} className="multi-select__option">
+                    <label key={person.name} className="multi-select__option">
                       <input
                         type="checkbox"
-                        checked={operators.includes(person)}
+                        checked={operators.includes(person.name)}
                         onChange={(event) => {
                           setOperators((current) =>
                             event.target.checked
-                              ? [...current, person]
-                              : current.filter((operator) => operator !== person),
+                              ? [...current, person.name]
+                              : current.filter((operator) => operator !== person.name),
                           );
                         }}
                       />
-                      <span>{person}</span>
+                      <span>{person.name}</span>
                     </label>
                   ))
                 )}

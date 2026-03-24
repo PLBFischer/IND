@@ -75,7 +75,11 @@ export function FlowNode({
             </div>
             <div>
               <dt>Duration</dt>
-              <dd>{formatMetric(node.duration)} days</dd>
+              <dd>{formatMetric(node.duration)} weeks</dd>
+            </div>
+            <div>
+              <dt>Workload</dt>
+              <dd>{formatMetric(node.workHoursPerWeek)} hrs/wk</dd>
             </div>
           </dl>
         )}
