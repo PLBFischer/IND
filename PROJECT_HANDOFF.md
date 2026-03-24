@@ -1,513 +1,695 @@
 # Project Summary
 - Problem definition
   - Build a restrained, enterprise-style flowchart UI for planning experiments/pipeline steps.
-  - Each node represents an experiment/task with dependencies, cost, duration, completion state, and a set of eligible operators.
-  - The system must compute personnel distribution across tasks, then evolve from local assignment logic to a best-overall project schedule.
+  - Each node represents an experiment/task with:
+    - title/content
+    - cost
+    - duration
+    - operator effort
+    - eligible operators
+    - completion state
+  - The system must compute a best-overall project schedule and operator allocation subject to dependencies and personnel capacity.
+  - The graph has evolved from a simple sequential pipeline editor into a scheduling/planning tool with:
+    - weekly staffing capacity
+    - edge-level parallelization semantics
+    - multiplier-based parallelized experiment variants
 - Constraints and requirements
-  - Existing app is a Vite + React + TypeScript frontend with local state persisted in `localStorage`.
-  - Visual style should remain restrained, sharp, monochrome, and close to the existing UI.
-  - Eligible operators are editable on each node, but should not always be shown on the node.
-  - Assignment visibility must be user-controlled via a top-bar `Assign` toggle.
-  - Not every experiment requires an internal operator; some nodes may intentionally remain unassigned because work is external.
-  - Best-overall scheduling must respect:
-    - DAG precedence constraints from graph edges
-    - node durations
-    - exactly one operator for tasks that use personnel
-    - operator capacity of one task at a time
-    - nodes with no eligible operators should still be schedulable
-  - UI interaction requirement:
-    - dragging a node must not open the node editor
-    - clicking a node should still open the editor reliably
+  - Existing app is a Vite + React + TypeScript frontend with `localStorage` persistence.
+  - Visual style must remain restrained, monochrome, and enterprise-like.
+  - Scheduling must be exact enough to support real planning decisions, not just local heuristics.
+  - Current business rules:
+    - time is measured in weeks
+    - each person has `hoursPerWeek`
+    - each node has `workHoursPerWeek`
+    - each experiment is assigned to at most one operator
+    - an operator can work on multiple experiments in parallel as long as weekly capacity is not exceeded
+    - some experiments may intentionally require no internal operator
+    - parallelization is configured at the edge level, not node level
+    - a node can have a multiplier `1x..4x` that only becomes active once the node has at least one incoming parallelized edge
+    - multiplier affects cost and weekly workload, but not duration
+  - Interaction requirements:
+    - clicking a node opens its editor
+    - dragging a node should not open the editor
+    - `Assign` is a toggle between unassigned and assigned view
+    - while assigned view is active, scheduling-relevant changes should trigger automatic recomputation
+    - graph state must be exportable as JSON
 - Success criteria
-  - User can maintain a graph of experiments and personnel in the current UI.
-  - User can click `Assign` to compute and reveal derived assignments on nodes.
-  - Scheduler minimizes overall makespan, not just current-step matching.
-  - Changing eligible operators/personnel/graph data recomputes the optimal assignment when assignment view is active.
-  - User can click `Assign` again to return to an unassigned display state.
+  - User can manage nodes, edges, personnel, weekly capacities, and eligible operators in the UI.
+  - User can compute and view a derived optimal schedule with operator assignments.
+  - Parallelized edges change the schedule semantics and are visually distinct.
+  - Multiplier is editable only when relevant and visibly shown on nodes when greater than `1x`.
+  - Export produces the current live graph state.
 
 # Final State (Current Best Solution)
 - Description of the current approach
-  - Frontend remains a Vite/React app.
-  - A Python backend was added in `backend/app.py` using:
-    - `FastAPI` for the API
+  - Frontend:
+    - Vite + React + TypeScript
+    - graph state persisted in `localStorage`
+    - assignment view toggled by `Assign`
+    - export button downloads current live graph state as JSON
+  - Backend:
+    - Python `FastAPI`
     - `OR-Tools CP-SAT` for exact scheduling
-  - Frontend sends a reduced scheduling payload:
-    - `personnel`
-    - `nodes[]` with `id`, `title`, `duration`, `operators`, `completed`
-    - `edges[]`
-  - Backend computes:
-    - assignment of one operator per personnel-using node
-    - start and finish time per active node
-    - project makespan
-    - diagnostics for nodes with no eligible operators
-  - Frontend stores schedule output separately from graph editing state.
-  - Node `operators` are treated as eligible operators only.
-  - Node cards show assignment info only when the `Assign` toggle is active.
-  - `Assign` is a true toggle:
-    - first click: compute and show assignments
-    - second click: hide assignments and return to unassigned display
-  - While assignment view is active, scheduling-relevant changes automatically trigger a fresh solve.
-  - Drag/click behavior is separated using one-shot click suppression after a real drag.
+  - Current data model
+    - `Personnel`
+      - `name`
+      - `hoursPerWeek`
+    - `FlowNode`
+      - `id`
+      - `title`
+      - `content`
+      - `cost`
+      - `duration` in weeks
+      - `workHoursPerWeek`
+      - `parallelizationMultiplier` in `{1,2,3,4}`
+      - `operators` = eligible operators
+      - `completed`
+      - `x`, `y`
+    - `FlowEdge`
+      - `id`
+      - `source`
+      - `target`
+      - `parallelized`
+  - Scheduling semantics
+    - Non-parallelized edge:
+      - finish-to-start
+      - `start(target) >= finish(source)`
+    - Parallelized edge:
+      - start-to-start
+      - `start(target) >= start(source)`
+    - Operator allocation:
+      - exact one operator if node uses personnel
+      - cumulative capacity by operator in weekly hours
+    - Multiplier:
+      - only effective if node has at least one incoming parallelized edge
+      - scales:
+        - node cost
+        - node workload (`workHoursPerWeek`)
+      - does not scale:
+        - node duration
+  - Current UI behavior
+    - top bar shows:
+      - `Planned Cost`
+      - `Planned Duration`
+      - `Personnel`
+      - `Assign`
+      - `Export`
+      - `Add Node`
+    - nodes show:
+      - title
+      - multiplier badge only if effective multiplier > `1x`
+      - content
+      - assignment only in assigned view
+      - cost/duration/workload
+    - dashed edges indicate parallelized dependencies
+    - `Parallelize` button in node editor enters a mode where user clicks an existing predecessor to toggle edge parallelization
 - Why this approach was selected
-  - Exact scheduling was required, not just local conflict resolution.
-  - CP-SAT is a clean fit for precedence + renewable resource constraints + assignment choice.
-  - Python backend is simpler and more robust than trying to run CP-SAT in-browser in this repo.
-  - Keeping schedule output derived and separate avoids corrupting editable graph state.
-  - Toggling assignment visibility keeps the flowchart readable while preserving access to the computed plan.
+  - CP-SAT fits the combined precedence + capacity + assignment optimization problem directly.
+  - Python backend was simpler and more robust than browser-only solver integration for this repo.
+  - Edge-level parallelization matched the clarified domain semantics better than a node-level flag.
+  - Keeping assignment as derived state avoids corrupting editable graph data.
+  - Effective multiplier gating prevents stale multipliers from affecting planning when a node is no longer parallelized.
 - Known limitations
-  - Current scheduler optimizes makespan and a secondary tie-break via summed end times; it does not optimize for cost, fairness, or operator preference.
-  - Completed nodes are returned with `start=0`, `finish=0`, and no assigned operator in the derived schedule.
-  - Nodes with no eligible operators are treated as “no personnel required”; there is no explicit node-level flag distinguishing intentional external work from missing staffing.
-  - No explicit Gantt/timeline UI exists yet; results are shown only as node-level assignment plus `Planned Duration`.
-  - Backend is local/dev-oriented; there is no deployment, auth, persistence, or test suite yet.
+  - No automated tests yet for scheduler correctness or interaction details.
+  - No explicit distinction between:
+    - truly external/no-personnel work
+    - accidentally unstaffed tasks with empty eligible operator list
+  - Completed nodes currently return zeroed schedule fields in derived results.
+  - No timeline/Gantt view; scheduling output is still shown mainly through node assignments and the global duration metric.
+  - Parallelization currently toggles any existing predecessor edge individually, but there is no dedicated edge editor or legend.
+  - Multiplier currently scales cost and workload only; there is no probabilistic or risk model behind it.
 
 # Approaches Explored
 ## Approach: Per-step bipartite matching
 - Hypothesis / intuition
-  - A clean way to resolve immediate operator conflicts is to match currently ready experiments to available operators.
-  - This directly solves:
-    - one operator eligible for multiple parallel experiments
-    - one experiment with multiple eligible operators but needing exactly one
+  - Immediate conflicts between operators and ready tasks can be modeled cleanly as bipartite matching.
 - Implementation details (code structure, models, algorithms, key parameters)
-  - Conceptual only; not implemented in code.
-  - Modeled as bipartite matching:
-    - left side: ready experiments
-    - right side: available operators
-    - edge: operator is eligible for experiment
-  - Objective:
-    - maximize number of assignments or weighted assignments at a single decision point
+  - Conceptual only.
+  - Left side: ready experiments.
+  - Right side: available operators.
+  - Edge: operator eligible for experiment.
+  - Objective: maximize assignments at a single decision point.
 - What changed relative to previous attempts
-  - This was the first formal modeling step for the personnel distribution problem.
+  - First formalization of “who should do what” in the graph.
 - Results (qualitative + quantitative if available)
-  - Qualitatively clean for local assignment.
-  - No quantitative run because it was not implemented.
+  - Good local conflict model.
+  - No code or numeric results.
 - Failure modes / issues
-  - Does not produce the best overall project schedule across time.
-  - Ignores future dependency/resource interactions beyond the current ready set.
-  - Can be locally optimal but globally suboptimal.
+  - Cannot optimize the full project schedule over time.
+  - Ignores future bottlenecks and precedence interactions.
 - Conclusion (why kept or discarded)
-  - Discarded as the primary solution because the user explicitly wanted the best overall schedule.
-  - Retained as a useful conceptual baseline and fallback for simpler scenarios.
+  - Discarded as the primary solution once user clarified that the best overall schedule was required.
 
 ## Approach: Frontend-only exact scheduler in TypeScript
 - Hypothesis / intuition
-  - Because the app looked relatively small, a custom exact search in TypeScript might be simpler than bringing in a solver/backend.
+  - For modest graph sizes, a custom exact search might be easier than adding infrastructure.
 - Implementation details (code structure, models, algorithms, key parameters)
-  - Discussed conceptually only.
-  - Candidate direction:
-    - branch-and-bound or exhaustive search over assignments and timing decisions
-    - operate directly in the browser
+  - Discussed only.
+  - Candidate direction: branch-and-bound or direct search in TypeScript.
 - What changed relative to previous attempts
-  - This was considered after recognizing that browser-side CP-SAT is awkward in a frontend-only Vite app.
+  - Retained exact optimization but kept everything in the browser.
 - Results (qualitative + quantitative if available)
   - No code written.
-  - Qualitative assessment: feasible for small instances, but not ideal as the main long-term foundation.
 - Failure modes / issues
-  - More custom algorithm work.
-  - Harder to extend with richer constraints later.
-  - Less robust than using a mature solver once backend availability was accepted.
+  - More custom algorithm complexity.
+  - Harder to extend cleanly with richer constraints.
 - Conclusion (why kept or discarded)
   - Discarded once the user approved a Python backend and package installation.
 
-## Approach: In-browser CP-SAT / WASM
+## Approach: Browser-side CP-SAT / WASM
 - Hypothesis / intuition
-  - CP-SAT solves the right problem class, so perhaps it could run directly in the browser.
+  - Use the right solver class but keep execution in-browser.
 - Implementation details (code structure, models, algorithms, key parameters)
-  - Discussed conceptually only.
-  - Would likely require:
-    - browser-compatible OR-Tools/WASM path
-    - worker isolation to avoid blocking the UI
+  - Discussed only.
+  - Would require browser-compatible solver packaging and likely a worker.
 - What changed relative to previous attempts
-  - This kept the exact solver idea but avoided a backend.
+  - Attempted to keep exact solving without backend infrastructure.
 - Results (qualitative + quantitative if available)
   - No code written.
 - Failure modes / issues
-  - Higher integration complexity in this repo than adding a small Python backend.
-  - Bundle/runtime complexity would be disproportionate to the current product shape.
+  - Integration complexity too high for current repo.
+  - Worse fit than a small Python service.
 - Conclusion (why kept or discarded)
-  - Discarded as unnecessary complexity for the current project.
+  - Discarded.
 
 ## Approach: Python backend with FastAPI + OR-Tools CP-SAT
 - Hypothesis / intuition
-  - A local Python backend is the cleanest exact-solver integration for this app.
-  - OR-Tools CP-SAT can directly encode precedence and operator non-overlap constraints.
+  - A local Python service is the cleanest way to add an exact scheduling engine.
 - Implementation details (code structure, models, algorithms, key parameters)
-  - Added `backend/app.py`.
-  - Added project-local `.venv` and installed:
+  - Added:
+    - `backend/app.py`
+    - `backend/requirements.txt`
+    - project-local `.venv`
+  - Backend dependencies:
     - `fastapi`
     - `uvicorn`
     - `ortools`
-  - Added `backend/requirements.txt`.
-  - Added API endpoints:
+  - Endpoints:
     - `GET /api/health`
     - `POST /api/schedule`
-  - Scheduling model:
-    - validate graph is acyclic
-    - ignore completed nodes in active scheduling
-    - scale decimal durations to integers using max decimal precision across nodes
-    - create `start` and `end` variables for each active node
-    - for each eligible operator on a node:
-      - create optional interval with presence variable
-    - `AddExactlyOne` over eligible operators for nodes that use personnel
-    - `AddNoOverlap` per operator across assigned intervals
-    - precedence constraints:
-      - `start[target] >= end[source]` when both nodes are active
-    - objective:
-      - minimize makespan
-      - secondary tie-break through summed end times
-    - diagnostics:
-      - if a node has no eligible operators, schedule it without personnel and report that
-  - Frontend integration:
-    - `vite.config.ts` proxies `/api` to `127.0.0.1:8000`
-    - `package.json` adds `npm run dev:server`
-    - `src/App.tsx` handles fetch, assignment toggle, recomputation, diagnostics
-    - `src/types/graph.ts` adds schedule result types
-    - `src/components/FlowNode.tsx` shows derived assignment only in assigned view
-    - `src/components/Toolbar.tsx` adds `Assign` and `Planned Duration`
+  - Initial solver model:
+    - DAG validation
+    - start/end vars per active node
+    - optional intervals per `(node, operator)` eligibility pair
+    - `AddExactlyOne` assignment
+    - precedence edges as finish-to-start
+    - objective minimizes makespan with summed-end-time tie-break
 - What changed relative to previous attempts
-  - Moved from conceptual scheduling models to a working exact-solver implementation.
-  - Introduced a backend instead of keeping everything inside the frontend.
+  - First implemented exact scheduler.
 - Results (qualitative + quantitative if available)
-  - `npm run build` passes.
-  - Backend compiles via `python -m py_compile backend/app.py`.
-  - In-process scheduler verification returned:
-    - makespan `10.0`
-    - `Orders` assigned to `Avery Chen`
-    - `Enrichment` assigned to `Sam Rivera`
-    - `External Review` assigned to `None`
-    - diagnostic: external/no-operator node is scheduled without personnel
+  - Build/compile succeeded.
+  - In-process solver checks returned valid assignments and makespans.
 - Failure modes / issues
-  - Direct localhost server verification inside sandbox hit port-binding restrictions; runtime verification used in-process backend calls instead.
-  - No automated tests yet.
+  - Sandbox blocked localhost port binding for direct runtime verification; had to use in-process checks.
 - Conclusion (why kept or discarded)
-  - Kept. This is the current best solution.
+  - Kept. This remains the scheduling foundation.
 
-## Approach: Always show operator names on nodes
+## Approach: Always show selected operator names on nodes
 - Hypothesis / intuition
-  - Reusing the existing `operators` field directly on node cards would be the simplest UI path.
+  - Reuse the existing node `operators` field directly on the cards.
 - Implementation details (code structure, models, algorithms, key parameters)
-  - This was the pre-existing frontend behavior:
-    - node cards displayed `operators`
-    - `NodeEditor` allowed multi-select personnel assignment
+  - This was the original UI behavior before derived assignment was introduced.
 - What changed relative to previous attempts
-  - This was the initial state before scheduling UI changes.
+  - Baseline app state.
 - Results (qualitative + quantitative if available)
-  - Worked for displaying eligibility, but not for distinguishing eligibility from actual assignment.
+  - Worked as an eligibility display.
 - Failure modes / issues
-  - Ambiguous data semantics:
-    - “eligible operators” and “chosen assigned operator” were conflated
-  - Bad UX once scheduling was introduced:
-    - node cards would always show candidate names even when user wanted the unassigned planning view
+  - `operators` conflated:
+    - eligible operators
+    - actual chosen assignment
+  - Became semantically wrong once solver-based assignment existed.
+- Conclusion (why kept or discarded)
+  - Discarded. Replaced by toggleable derived assignment display.
+
+## Approach: Toggle assignment display via `Assign`
+- Hypothesis / intuition
+  - Assignment is derived planning state and should be shown only on demand.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - `Assign` button acts as a toggle:
+    - off -> solve and show assignments
+    - on -> hide assignments
+  - Assigned view keeps schedule in separate state.
+  - While assigned view is active, scheduling-relevant changes trigger recomputation.
+- What changed relative to previous attempts
+  - Replaced always-on operator display with intentional assignment view.
+- Results (qualitative + quantitative if available)
+  - Cleaner graph.
+  - Matches user’s intended workflow.
+- Failure modes / issues
+  - None currently known.
+- Conclusion (why kept or discarded)
+  - Kept.
+
+## Approach: Exclusive one-task-at-a-time staffing
+- Hypothesis / intuition
+  - Initially each operator would simply be unable to overlap tasks.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - Initial conceptual formulation used one-task-per-operator resource exclusivity.
+- What changed relative to previous attempts
+  - First staffing rule before weekly capacities were introduced.
+- Results (qualitative + quantitative if available)
+  - Simpler mental model.
+- Failure modes / issues
+  - Did not match the later domain requirement that one person can work on multiple experiments in parallel if weekly hours allow it.
+- Conclusion (why kept or discarded)
+  - Discarded after user clarified weekly-hours capacity model.
+
+## Approach: Weekly capacity-constrained staffing
+- Hypothesis / intuition
+  - Operators should be allowed to overlap tasks when total hours/week fits within capacity.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - Added structured `Personnel` with `hoursPerWeek`.
+  - Added node `workHoursPerWeek`.
+  - Changed units from days to weeks in the UI and scheduling model.
+  - Backend changed from `AddNoOverlap` to `AddCumulative` per operator.
+  - Each active assigned node contributes weekly demand to its assigned operator.
+- What changed relative to previous attempts
+  - Moved from exclusive capacity to renewable numeric weekly capacity.
+- Results (qualitative + quantitative if available)
+  - In-process solver verification:
+    - one operator with `20` hours/week
+    - two tasks at `10 hrs/wk` each
+    - both run in parallel from week `0` to `4`
+    - makespan `4.0`
+- Failure modes / issues
+  - Requires more careful workload modeling than simple overlap/no-overlap.
+- Conclusion (why kept or discarded)
+  - Kept. This is the current staffing rule.
+
+## Approach: Node-level parallelization
+- Hypothesis / intuition
+  - A node checkbox could mark a task as running “in parallel with predecessors.”
+- Implementation details (code structure, models, algorithms, key parameters)
+  - Discussed conceptually.
+  - Would have changed all incoming edges to start-to-start semantics.
+- What changed relative to previous attempts
+  - First thought for representing overlap semantics.
+- Results (qualitative + quantitative if available)
+  - Not implemented.
+- Failure modes / issues
+  - Too coarse after the user clarified intent.
+  - Real need was to parallelize specific dependencies, not all incoming edges uniformly.
+- Conclusion (why kept or discarded)
+  - Discarded in favor of edge-level parallelization.
+
+## Approach: Edge-level parallelization with dashed arrows
+- Hypothesis / intuition
+  - Parallelization is fundamentally a dependency-type change, so it belongs on the edge.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - Added `parallelized: boolean` to `FlowEdge`.
+  - Added `Parallelize` button in node editor.
+  - Parallelize mode:
+    - start from a target node
+    - only existing predecessors are valid clicks
+    - clicking predecessor toggles the edge’s `parallelized` state
+  - Render:
+    - dashed SVG path for parallelized edges
+  - Backend:
+    - dashed edge -> start-to-start
+    - normal edge -> finish-to-start
+- What changed relative to previous attempts
+  - Replaced potential node-level flag with per-edge semantics.
+- Results (qualitative + quantitative if available)
+  - Build passed.
+  - In-process solver check:
+    - `A -> B` parallelized
+    - both tasks started at `0`
+    - makespan `4.0`
+- Failure modes / issues
+  - No separate edge editor or summary list yet.
+- Conclusion (why kept or discarded)
+  - Kept. This is the current dependency-overlap model.
+
+## Approach: Live drag-state click suppression
+- Hypothesis / intuition
+  - If a node is “dragging” during click, ignore the click.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - Movement threshold.
+  - `draggingNodeId`/render-state gating path.
+- What changed relative to previous attempts
+  - First fix for editor opening on drag.
+- Results (qualitative + quantitative if available)
+  - Prevented unwanted editor opens during drag.
+- Failure modes / issues
+  - Sometimes suppressed real clicks because suppression was tied to render timing.
 - Conclusion (why kept or discarded)
   - Discarded.
-  - Replaced with:
-    - editable eligible-operator field in editor
-    - derived assignment display only when `Assign` is active
 
-## Approach: Assignment shown only after pressing Assign, with toggle back to unassigned
+## Approach: One-shot post-drag click suppression
 - Hypothesis / intuition
-  - Derived staffing should be a view over the graph, not permanently clutter the default node display.
+  - Only the browser click emitted immediately after a real drag should be suppressed.
 - Implementation details (code structure, models, algorithms, key parameters)
-  - `Assign` button in top bar:
-    - light when unassigned view is active
-    - dark when assignments are displayed
-  - Clicking `Assign` while off:
-    - activates assigned view
-    - triggers scheduling
-  - Clicking `Assign` while on:
-    - hides assignments
-    - leaves graph editing state intact
-  - When assigned view is on:
-    - graph/personnel/operator changes trigger recomputation
+  - Track pointer start coordinates and `hasMoved`.
+  - On `pointerup`, if movement threshold exceeded:
+    - store `suppressedClickNodeId`
+  - Ignore only the next click on that same node.
 - What changed relative to previous attempts
-  - Added explicit state distinction between unassigned and assigned views.
+  - Removed reliance on live dragging render state.
 - Results (qualitative + quantitative if available)
-  - Matches user-requested workflow.
-  - Keeps node cards cleaner in default mode.
+  - Restored reliable click behavior while preserving drag suppression.
 - Failure modes / issues
-  - None known in current behavior.
+  - None currently known.
 - Conclusion (why kept or discarded)
-  - Kept. This is part of the current best solution.
+  - Kept.
 
-## Approach: Suppress node editor during drag using live dragging render state
+## Approach: Multiplier only when node is effectively parallelized
 - Hypothesis / intuition
-  - If a node is currently “dragging”, block the click handler on that node.
+  - Multiplier is meaningful only once a node is actually being parallelized relative to an upstream dependency.
 - Implementation details (code structure, models, algorithms, key parameters)
-  - Added movement threshold (`DRAG_THRESHOLD_PX = 6`).
-  - Passed a `dragging`/`draggingNodeId` prop down to node components.
-  - Node click handler returned early when `dragging === true`.
+  - Added `parallelizationMultiplier: 1 | 2 | 3 | 4` to nodes.
+  - Dropdown shown in editor only when selected node has at least one incoming parallelized edge.
+  - Effective multiplier computed via utility:
+    - if no incoming parallelized edge -> effective multiplier = `1`
+    - else effective multiplier = stored value
+  - Multiplier scales:
+    - effective cost
+    - effective weekly workload
+  - Duration unchanged.
+  - Flowchart header shows multiplier only when effective multiplier > `1x`.
 - What changed relative to previous attempts
-  - This was the first attempt to distinguish drag from click.
+  - Added a controlled way to model multiple parallel variants of a risky successor experiment.
 - Results (qualitative + quantitative if available)
-  - Fixed the original issue:
-    - dragging no longer opened the node editor
+  - Build passed.
+  - In-process solver check:
+    - parallelized successor with base `5 hrs/wk`, multiplier `2x`
+    - effective weekly demand `10 hrs/wk`
+    - duration unchanged
+    - makespan stayed `4.0`
 - Failure modes / issues
-  - Sometimes a real click no longer opened the editor.
-  - Cause:
-    - suppression relied on transient render timing / state visibility during the click event
-    - state could remain too coarse and swallow legitimate clicks
+  - No probabilistic success model; multiplier is purely a cost/workload amplifier.
 - Conclusion (why kept or discarded)
-  - Discarded due to unreliable click behavior.
+  - Kept.
 
-## Approach: One-shot suppression of the click immediately after an actual drag
+## Approach: Export current graph state as downloadable JSON
 - Hypothesis / intuition
-  - The browser emits a click after drag end; only that single click should be ignored.
-  - Suppression should be event-sequenced, not driven by render-time “dragging” state.
+  - Since the live browser graph can diverge from repo defaults, exporting current state is the cleanest way to inspect/share the active graph.
 - Implementation details (code structure, models, algorithms, key parameters)
-  - `DragState` tracks:
-    - start pointer coordinates
-    - `hasMoved`
-  - On `pointermove`:
-    - mark drag as real only after threshold crossed
-  - On `pointerup`:
-    - if `hasMoved`, set `suppressedClickNodeId`
-  - On next node click:
-    - if clicked node matches `suppressedClickNodeId`, clear it and ignore only that click
-    - otherwise proceed normally
-  - Canvas click also clears stale suppression state
+  - Added `Export` button in toolbar.
+  - Creates a JSON blob from in-memory:
+    - `nodes`
+    - `edges`
+    - `personnel`
+    - storage key
+    - export timestamp
+  - Downloads file `pipeline-graph-<timestamp>.json`
 - What changed relative to previous attempts
-  - Removed the `draggingNodeId` prop path.
-  - Moved from stateful drag rendering to one-shot click suppression.
+  - Replaced the need for console inspection or ad hoc debugging.
 - Results (qualitative + quantitative if available)
-  - Fixes both observed behaviors:
-    - drag no longer opens editor
-    - regular click remains reliable
-  - `npm run build` passes after this change.
+  - Build passed.
 - Failure modes / issues
-  - No known current issue.
+  - No import path yet.
 - Conclusion (why kept or discarded)
-  - Kept. This is the current interaction solution.
+  - Kept.
 
 # Key Insights
 - Non-obvious discoveries
-  - The pre-existing `operators` field had already been added in code even though the older notes did not document it; session notes were stale relative to the codebase.
-  - “Eligible operator” and “assigned operator” must be modeled separately. Reusing one field for both causes UI and logic ambiguity.
-  - Nodes with zero eligible operators should not automatically be treated as infeasible; some tasks intentionally represent external work.
-  - For click-vs-drag behavior, suppressing based on a live dragging render flag is brittle. Suppressing only the post-drag click is materially more reliable.
+  - Session notes were stale relative to the codebase early on; code inspection was necessary to discover that `operators` already existed on nodes.
+  - The crucial modeling distinction is:
+    - `operators` = eligible operators
+    - assignment = derived scheduler output
+  - Parallelization belongs on edges, not nodes, once the intent is “this specific predecessor/successor relationship overlaps.”
+  - Effective multiplier must be gated by incoming parallelized edges, otherwise stale multiplier values can silently distort cost/workload after de-parallelization.
+  - Click suppression tied to render-time drag state is brittle; event-sequenced one-shot suppression is much more reliable.
 - Patterns across experiments
-  - Simpler local allocation ideas become insufficient once time and dependencies matter.
-  - UI clarity improved when derived scheduling information was treated as a toggleable layer rather than always-on node content.
-  - Recomputing only on scheduling-relevant changes avoids unnecessary solver calls from cosmetic interactions like dragging.
+  - Every time semantics became ambiguous, the right fix was to separate:
+    - editable inputs
+    - derived planning outputs
+  - The scheduler and the UI must share exactly the same “effective” logic for cost/workload/multiplier, otherwise planning and display drift apart.
+  - Recomputing only on scheduling-relevant changes preserves responsiveness while keeping assigned view accurate.
 - Important trade-offs identified
-  - Backend Python + OR-Tools:
-    - pros: exact solver, extensible, cleaner than browser solver integration
-    - cons: extra runtime process and Python dependencies
-  - Frontend-only exact logic:
-    - pros: simpler deployment
-    - cons: more custom algorithm complexity, weaker long-term foundation
-  - Always-on assignment display:
-    - pros: immediate visibility
-    - cons: cluttered graph and semantic confusion
+  - Python backend + OR-Tools:
+    - pros: exact scheduling, clean extensibility
+    - cons: second runtime process and Python dependency management
+  - Weekly capacity model:
+    - pros: closer to reality, supports parallel operator work
+    - cons: more complex interpretation of workload
+  - Multiplier with unchanged duration:
+    - pros: simple, matches “multiple variants run in parallel”
+    - cons: ignores richer outcomes like probabilistic success or lab throughput effects
 
 # Decision Log
 - Decision
-  - Model local staffing conflicts initially as bipartite matching.
+  - Start with formal local assignment as bipartite matching.
   - Reasoning
-    - It cleanly captures one-operator-per-task and one-task-per-operator at a moment in time.
+    - Directly matched the initial operator conflict examples.
   - Evidence supporting it
-    - Directly matched the user’s first examples of parallel conflicts.
+    - User’s original examples were one-operator/multiple-task and one-task/multiple-operator conflicts.
 - Decision
-  - Reject per-step matching as the primary solution and target best-overall scheduling.
+  - Move to best-overall scheduling instead of local assignment.
   - Reasoning
-    - User explicitly wanted the globally best schedule.
+    - User explicitly wanted the globally best plan.
   - Evidence supporting it
-    - Per-step matching ignores future dependencies and resource bottlenecks.
+    - Local matching cannot optimize over time and dependencies.
 - Decision
-  - Prefer backend Python + CP-SAT over frontend-only solver integration.
+  - Use Python backend with CP-SAT.
   - Reasoning
-    - Exact scheduling is straightforward in Python/OR-Tools and awkward in a Vite-only browser app.
+    - Strongest exact-solver path with lowest integration risk in this repo.
   - Evidence supporting it
-    - User approved backend setup and Python package installation.
+    - User approved package installation; in-browser solver path was unnecessarily complex.
 - Decision
-  - Treat `operators` as eligible operators, not displayed assignments.
+  - Separate eligible operators from displayed assignments.
   - Reasoning
-    - Needed to separate editable eligibility from derived staffing result.
+    - Avoid semantic ambiguity in both UI and scheduling.
   - Evidence supporting it
-    - User requested that selected names not be displayed by default on nodes.
+    - Always-on display of `operators` became wrong once assignment was derived.
 - Decision
-  - Add an `Assign` toggle instead of always showing assignments.
+  - Make assignment display a toggle.
   - Reasoning
-    - Keeps default graph view uncluttered and makes assignment display intentional.
+    - Preserve a clean planning view while still exposing solver output on demand.
   - Evidence supporting it
-    - User explicitly requested this workflow and later requested a toggle back to unassigned state.
+    - User explicitly requested `Assign` behavior and later requested it to toggle back off.
 - Decision
-  - Recompute the schedule automatically when relevant inputs change while assigned view is active.
+  - Replace exclusive operator occupancy with weekly capacity.
   - Reasoning
-    - Derived assignment should stay current without forcing manual re-run after each eligible-operator edit.
+    - Domain clarified that one operator can work across multiple projects in parallel.
   - Evidence supporting it
-    - User explicitly requested recomputation when eligible operators change.
+    - User introduced `hoursPerWeek` for personnel and `workHoursPerWeek` for nodes.
 - Decision
-  - Use one-shot post-drag click suppression instead of live drag-state gating.
+  - Represent parallelization on edges, not nodes.
   - Reasoning
-    - The first implementation fixed accidental opens but broke some normal clicks.
+    - User clarified that specific dependencies, not whole nodes, should be toggled.
   - Evidence supporting it
-    - User reported missed clicks after the initial drag fix; the causal issue was state timing.
+    - Desired workflow was “select Parallelize on node, then click an existing predecessor.”
+- Decision
+  - Keep multiplier from changing duration.
+  - Reasoning
+    - Multiple variants are being run simultaneously, so wall-clock time should stay constant for now.
+  - Evidence supporting it
+    - User agreed with unchanged duration after discussion.
+- Decision
+  - Show multiplier only when effective multiplier > `1x`.
+  - Reasoning
+    - `1x` is baseline and adds noise if always shown.
+  - Evidence supporting it
+    - User explicitly requested this change.
 
 # Experiments and Results
 - Experiment
-  - Name: Backend dependency installation
+  - Name: Python dependency installation
   - Inputs / configs
     - created `.venv`
     - installed `fastapi`, `uvicorn`, `ortools`
   - Outputs / metrics
-    - install succeeded after escalating network access
+    - successful install after escalated network access
   - Observed impact
-    - Enabled exact-solver backend implementation
+    - enabled backend implementation
 - Experiment
-  - Name: Frontend build validation after backend integration
+  - Name: Frontend env typing fix
   - Inputs / configs
     - `npm run build`
   - Outputs / metrics
-    - initial failure: `Property 'env' does not exist on type 'ImportMeta'`
-    - fix: added `src/vite-env.d.ts`
-    - final result: build passed
+    - initial failure due to missing `vite/client` types for `import.meta.env`
+    - fixed by adding `src/vite-env.d.ts`
+    - build then passed
   - Observed impact
-    - confirmed frontend integration correctness
+    - restored type-safe frontend build
 - Experiment
-  - Name: Backend compile validation
+  - Name: Initial backend in-process validation
   - Inputs / configs
-    - `.venv/bin/python -m py_compile backend/app.py`
+    - sample nodes:
+      - `Orders` 6 weeks
+      - `Enrichment` 4 weeks
+      - `External Review` 3 weeks, no operators
+    - personnel:
+      - Avery, Morgan, Sam
   - Outputs / metrics
-    - pass
+    - makespan `10.0`
+    - valid operator assignments
+    - diagnostic for no-operator external node
   - Observed impact
-    - caught/finalized syntax-level backend correctness
+    - validated baseline CP-SAT integration
 - Experiment
-  - Name: In-process schedule function verification
+  - Name: Weekly capacity overlap validation
   - Inputs / configs
-    - personnel: `Avery Chen`, `Morgan Patel`, `Sam Rivera`
-    - nodes:
-      - `Orders`, duration `6`, operators `[Avery Chen]`
-      - `Enrichment`, duration `4`, operators `[Morgan Patel, Sam Rivera]`
-      - `External Review`, duration `3`, operators `[]`
-    - edge:
-      - `Orders -> Enrichment`
+    - one operator with `20 hrs/week`
+    - two tasks with `10 hrs/week` each
+    - no precedence edge
   - Outputs / metrics
-    - makespan: `10.0`
-    - `Orders`: `Avery Chen`, `0.0 -> 6.0`
-    - `Enrichment`: `Sam Rivera`, `6.0 -> 10.0`
-    - `External Review`: no operator, `0.0 -> 3.0`
-    - diagnostic: external review scheduled without personnel
+    - both tasks ran from week `0` to `4`
+    - makespan `4.0`
   - Observed impact
-    - validated solver semantics for dependency + staffing + external-work case
+    - proved cumulative-capacity model allows lawful overlap
 - Experiment
-  - Name: Initial drag suppression via live dragging prop
+  - Name: Parallelized edge validation
   - Inputs / configs
-    - movement threshold with `draggingNodeId` passed to nodes
+    - `A -> B`
+    - edge marked `parallelized = true`
+    - both tasks assigned to same operator within weekly capacity
   - Outputs / metrics
-    - fixed drag-opening issue
-    - introduced intermittent missed-click issue
+    - both tasks started at `0`
+    - makespan `4.0`
   - Observed impact
-    - proved threshold concept was right, but suppression mechanism was wrong
+    - proved start-to-start semantics are active
 - Experiment
-  - Name: One-shot suppressed click after actual drag
+  - Name: Multiplier workload scaling validation
   - Inputs / configs
-    - `suppressedClickNodeId` set on `pointerup` only if drag exceeded threshold
+    - predecessor `A`
+    - parallelized successor `B`
+    - `B.workHoursPerWeek = 5`
+    - `B.parallelizationMultiplier = 2`
   - Outputs / metrics
-    - build passed
-    - expected behavior restored:
-      - drag does not open editor
-      - normal click opens editor
+    - `B` effective weekly workload became `10`
+    - duration unchanged
+    - makespan stayed `4.0`
   - Observed impact
-    - stabilized click/drag behavior
+    - validated intended multiplier semantics
+- Experiment
+  - Name: Drag suppression via live drag state
+  - Inputs / configs
+    - movement threshold with drag-state-driven click suppression
+  - Outputs / metrics
+    - fixed accidental open on drag
+    - introduced missed clicks
+  - Observed impact
+    - identified render-timing bug in suppression strategy
+- Experiment
+  - Name: One-shot post-drag suppression
+  - Inputs / configs
+    - suppress only next click after true drag
+  - Outputs / metrics
+    - drag no longer opens editor
+    - click reliably opens editor
+  - Observed impact
+    - stabilized core node interaction
 
 # Open Problems
 - Known issues
   - No automated tests for:
-    - scheduler correctness
-    - cycle rejection
-    - decimal duration scaling
-    - assignment toggle behavior
-    - click/drag interaction
-  - `Planned Duration` is hidden as `Not run` when assignment view is off, even if a schedule was just computed; this is intentional in current UX but may or may not be desired later.
-  - External/no-personnel work is inferred from empty eligible-operator list; there is no explicit semantic field.
+    - scheduling semantics
+    - edge parallelization
+    - multiplier behavior
+    - drag/click behavior
+    - export integrity
+  - No import path for exported JSON.
+  - No explicit label in the UI distinguishing:
+    - external/no-personnel tasks
+    - internally staffed tasks with empty eligible operator lists
 - Unresolved questions
-  - Should external/no-personnel tasks be visually distinct from staffing failures?
-  - Should completed nodes retain historical assignment/start/finish information instead of returning zeros?
-  - Should the schedule use additional objectives:
-    - operator fairness
-    - minimize idle time
-    - prioritize critical experiments
-    - due dates / deadlines
-  - Should the UI show start/finish timing on nodes or in a separate timeline?
+  - Should multiplier eventually influence:
+    - chance of success
+    - priority
+    - downstream branching logic
+  - Should completed nodes preserve historical schedule fields instead of zeroing them?
+  - Should parallelized edges have richer semantics later:
+    - partial overlap offsets
+    - lag times
+    - grouped parallelization controls
+  - Should planned duration remain hidden as `Not run` when assigned view is off, or should last-computed value remain visible?
 - Risks
-  - As constraints get richer, recomputing on every relevant edit may become more expensive.
-  - Current local backend workflow assumes users can run Python processes beside the frontend.
-  - Without tests, future refactors could easily break scheduler semantics or interaction details.
+  - Shared “effective” logic currently exists in both frontend and backend; if extended carelessly, drift could reappear.
+  - Solver complexity may grow if future requirements add deadlines, calendars, probabilistic outcomes, or multi-operator tasks.
+  - Without tests, refactors can easily break subtle interaction behavior.
 
 # Next Steps
 - Concrete, actionable items
-  - Add tests for `backend/app.py`:
-    - acyclic valid schedule
+  - Add backend tests for:
     - cycle rejection
-    - no-eligible-operator behavior
-    - decimal durations
-    - operator contention
+    - finish-to-start vs start-to-start edges
+    - cumulative operator capacity
+    - multiplier gating and scaling
+    - no-operator tasks
   - Add frontend tests for:
-    - `Assign` toggle behavior
-    - recomputation when eligible operators change
-    - drag vs click interaction
-  - Consider explicit node field for external/no-personnel tasks instead of inferring from empty eligibility.
-  - Consider showing planned `start` / `finish` on nodes or in a dedicated schedule view.
-  - Consider persisting last computed schedule if that becomes useful across reloads.
+    - `Assign` toggle and automatic recomputation
+    - `Parallelize` interaction mode
+    - multiplier dropdown visibility
+    - drag vs click behavior
+    - export output shape
+  - Add import capability for exported JSON.
+  - Consider adding a schedule timeline / Gantt view.
+  - Consider explicit node flag for external/no-personnel work.
 - Suggested experiments or improvements
-  - Compare current objective with alternatives:
-    - pure makespan only
-    - makespan + fairness term
-    - makespan + priority weighting
-  - Stress-test solver performance with larger DAGs and more operators.
-  - Add richer diagnostics for why a node is unassigned or external.
+  - Stress-test solver with larger DAGs and many parallelized edges.
+  - Compare objective variants:
+    - pure makespan
+    - makespan + fairness
+    - makespan + critical-priority weighting
+  - Evaluate whether multiplier should eventually support fractional or larger values (inferred future need).
 
 # Reproduction Notes
 - How to reproduce the current best result
-  - In project root:
+  - Setup:
     - `python3 -m venv .venv`
     - `.venv/bin/pip install -r backend/requirements.txt`
     - `npm install`
-  - Start backend:
+  - Run backend:
     - `npm run dev:server`
-  - Start frontend:
+  - Run frontend:
     - `npm run dev -- --host 127.0.0.1`
   - Open:
     - `http://127.0.0.1:5173/`
   - In the UI:
-    - manage personnel from the `Personnel` panel
-    - edit nodes and choose eligible operators
-    - click `Assign` to compute/show assignments
-    - click `Assign` again to return to the unassigned view
-    - while assigned view is active, edit eligible operators or personnel to trigger recomputation
+    - add personnel with weekly hours in the `Personnel` panel
+    - create/edit nodes with duration in weeks, cost, work hours/week, and eligible operators
+    - use `Connect` to create edges
+    - use `Parallelize` on a node, then click an existing predecessor to toggle that edge’s parallelization
+    - if a node has an incoming parallelized edge, open its editor to set multiplier `1x..4x`
+    - click `Assign` to compute plan
+    - click `Assign` again to hide assignments
+    - click `Export` to download current graph state
 - Dependencies, configs, commands
-  - Node/Vite frontend:
-    - `npm install`
+  - Frontend:
     - `npm run dev`
     - `npm run build`
-  - Python backend:
-    - `.venv/bin/pip install -r backend/requirements.txt`
+  - Backend:
     - `npm run dev:server`
-  - Important files
+    - `.venv/bin/python -m py_compile backend/app.py`
+  - Key files
     - `backend/app.py`
     - `backend/requirements.txt`
     - `src/App.tsx`
-    - `src/components/Toolbar.tsx`
-    - `src/components/FlowNode.tsx`
-    - `src/components/NodeEditor.tsx`
+    - `src/hooks/useLocalStorageGraph.ts`
     - `src/types/graph.ts`
+    - `src/utils/graph.ts`
+    - `src/utils/metrics.ts`
+    - `src/components/NodeEditor.tsx`
+    - `src/components/FlowNode.tsx`
+    - `src/components/EdgeLayer.tsx`
+    - `src/components/Toolbar.tsx`
+    - `src/components/PersonnelPanel.tsx`
+    - `src/styles.css`
     - `vite.config.ts`
 
 # Context for Future Sessions
 - What a new model should know before continuing
-  - The project started as a local flowchart editor and has now been extended into a scheduling tool.
-  - The crucial modeling distinction is:
-    - `operators` on nodes = eligible operators
-    - displayed assignment = derived solver output
-  - The scheduling backend is already implemented and integrated.
-  - Assignment display is intentionally toggleable, not always on.
-  - The user likes the current restrained UI and prefers iterative refinement over redesign.
+  - This project is no longer just a flowchart editor; it is now a scheduling/planning UI with an exact backend optimizer.
+  - The most important semantic distinctions are:
+    - node `operators` = eligible operators
+    - assignment = derived schedule output
+    - edge `parallelized` = start-to-start dependency
+    - node `parallelizationMultiplier` = stored candidate value, effective only when node has an incoming parallelized edge
+  - Time is measured in weeks.
+  - Operator load is measured in hours per week.
+  - The current UI intentionally remains restrained and should be iterated, not redesigned.
 - Pitfalls to avoid
-  - Do not reintroduce ambiguity by showing eligible operators as if they are actual assignments.
-  - Do not tie click suppression to live dragging render state; that caused intermittent missed clicks.
-  - Do not assume session notes are fully current without checking code; they were stale earlier.
-  - Do not remove support for nodes with no eligible operators; this is a valid use case.
+  - Do not reintroduce ambiguity between eligibility and actual assignment.
+  - Do not make multiplier affect duration unless the domain model is explicitly changed.
+  - Do not tie click suppression to live drag render state.
+  - Do not assume exported JSON import exists; it does not yet.
+  - Do not assume empty eligible operators always means an error; current model allows no-personnel tasks.
 - Suggested starting point
-  - Start from `backend/app.py` and `src/App.tsx`.
-  - If continuing on scheduling, add tests first.
-  - If continuing on UI, next highest-value enhancement is likely a schedule timeline/Gantt-style view or richer diagnostics around external/unassigned work.
+  - Start with `src/App.tsx` and `backend/app.py` to understand the orchestration and solver semantics.
+  - If making scheduling changes, also inspect `src/utils/graph.ts` because effective cost/workload/multiplier logic is centralized there.
+  - Highest-value next work is likely:
+    - tests
+    - import/export round-trip
+    - richer schedule visualization
