@@ -6,11 +6,14 @@ A minimal, monochrome flowchart editor built with React, TypeScript, and Vite. T
 
 ```bash
 npm install
+python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt
 ```
 
 ## Run
 
 ```bash
+npm run dev:server
 npm run dev
 ```
 
@@ -23,6 +26,7 @@ npm run build
 ## Architecture Overview
 
 - `src/App.tsx`: top-level state orchestration for nodes, edges, selection, connection mode, dragging, and editor visibility
+- `backend/app.py`: FastAPI scheduling service backed by OR-Tools CP-SAT
 - `src/components/Canvas.tsx`: scrollable canvas shell, empty state, node and edge composition
 - `src/components/FlowNode.tsx`: compact draggable node card
 - `src/components/EdgeLayer.tsx`: SVG-based directed edges with arrow markers
@@ -36,6 +40,7 @@ npm run build
 - Click any existing node to edit its title and content
 - Drag nodes directly on the canvas to reposition them
 - Click `Connect` in the editor to enter connection mode, then click another node to create a directed edge
+- Click `Assign` in the top bar to compute the best overall schedule and display derived personnel assignments on nodes
 - Press `Escape` to close the editor or cancel connection mode
 - Clicking empty canvas clears selection and hides the editor
 
@@ -44,3 +49,5 @@ npm run build
 - Node and edge state persist in `localStorage`
 - Duplicate edges are prevented
 - Self-connections are intentionally blocked
+- The scheduler minimizes overall makespan while respecting graph dependencies and operator capacity
+- Nodes with no eligible operators are treated as external/no-personnel work and can still be scheduled

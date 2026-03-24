@@ -174,7 +174,7 @@ export function NodeEditor({
         </label>
 
         <div className="field">
-          <span>Operator</span>
+          <span>Eligible Operators</span>
           <div className="multi-select">
             <button
               type="button"
@@ -183,7 +183,9 @@ export function NodeEditor({
               }`}
               onClick={() => setIsOperatorMenuOpen((current) => !current)}
             >
-              {operators.length > 0 ? operators.join(', ') : 'Select operators'}
+              {operators.length > 0
+                ? operators.join(', ')
+                : 'Select eligible operators'}
             </button>
             {isOperatorMenuOpen ? (
               <div className="multi-select__menu">

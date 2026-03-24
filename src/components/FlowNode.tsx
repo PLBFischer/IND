@@ -1,10 +1,11 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { NODE_HEADER_HEIGHT, NODE_MIN_HEIGHT, NODE_WIDTH } from '../utils/constants';
 import { formatMetric } from '../utils/metrics';
-import type { FlowNode as FlowNodeType } from '../types/graph';
+import type { FlowNode as FlowNodeType, ScheduledNode } from '../types/graph';
 
 type FlowNodeProps = {
   node: FlowNodeType;
+  scheduleNode: ScheduledNode | null;
   selected: boolean;
   connectable: boolean;
   connectingFrom: boolean;
@@ -14,6 +15,7 @@ type FlowNodeProps = {
 
 export function FlowNode({
   node,
+  scheduleNode,
   selected,
   connectable,
   connectingFrom,
@@ -53,10 +55,14 @@ export function FlowNode({
       </div>
       <div className="flow-node__body">
         <p>{node.content}</p>
-        {node.operators.length > 0 ? (
+        {scheduleNode ? (
           <div className="flow-node__operators">
-            <span>{node.operators.length > 1 ? 'Operators' : 'Operator'}</span>
-            <strong>{node.operators.join(', ')}</strong>
+            <span>Assignment</span>
+            <strong>
+              {scheduleNode.usesPersonnel
+                ? scheduleNode.assignedOperator ?? 'Unassigned'
+                : 'No operator required'}
+            </strong>
           </div>
         ) : null}
         {node.completed ? (

@@ -1,5 +1,9 @@
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
-import type { FlowEdge, FlowNode as FlowNodeType } from '../types/graph';
+import type {
+  FlowEdge,
+  FlowNode as FlowNodeType,
+  ScheduledNode,
+} from '../types/graph';
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from '../utils/constants';
 import { EdgeLayer } from './EdgeLayer';
 import { FlowNode } from './FlowNode';
@@ -7,6 +11,7 @@ import { FlowNode } from './FlowNode';
 type CanvasProps = {
   nodes: FlowNodeType[];
   edges: FlowEdge[];
+  scheduleByNodeId: Record<string, ScheduledNode>;
   selectedNodeId: string | null;
   connectSourceId: string | null;
   canvasRef: RefObject<HTMLDivElement>;
@@ -22,6 +27,7 @@ type CanvasProps = {
 export function Canvas({
   nodes,
   edges,
+  scheduleByNodeId,
   selectedNodeId,
   connectSourceId,
   canvasRef,
@@ -50,6 +56,7 @@ export function Canvas({
             <FlowNode
               key={node.id}
               node={node}
+              scheduleNode={scheduleByNodeId[node.id] ?? null}
               selected={selectedNodeId === node.id}
               connectable={Boolean(connectSourceId && connectSourceId !== node.id)}
               connectingFrom={connectSourceId === node.id}

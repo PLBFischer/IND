@@ -16,4 +16,18 @@ export type FlowEdge = {
   target: string;
 };
 
+export type ScheduledNode = {
+  nodeId: string;
+  assignedOperator: string | null;
+  usesPersonnel: boolean;
+  start: number;
+  finish: number;
+};
+
+export type ScheduleResult = {
+  makespan: number;
+  nodes: ScheduledNode[];
+  diagnostics: string[];
+};
+
 export type EditorMode = 'closed' | 'create' | 'edit';
