@@ -14,6 +14,7 @@ class NodePayload(BaseModel):
     title: str
     duration: float = Field(ge=0)
     workHoursPerWeek: float = Field(ge=0)
+    parallelizationMultiplier: int = Field(default=1, ge=1, le=4)
     operators: list[str] = Field(default_factory=list)
     completed: bool = False
 
@@ -22,6 +23,7 @@ class EdgePayload(BaseModel):
     id: str
     source: str
     target: str
+    parallelized: bool = False
 
 
 class PersonnelPayload(BaseModel):
@@ -128,6 +130,9 @@ def schedule(payload: ScheduleRequest) -> ScheduleResponse:
 
     active_nodes = [node for node in payload.nodes if not node.completed]
     active_node_ids = {node.id for node in active_nodes}
+    parallelized_targets = {
+        edge.target for edge in payload.edges if edge.parallelized and edge.target in active_node_ids
+    }
     personnel_capacity = {
         person.name: scale_value(person.hoursPerWeek, scale)
         for person in payload.personnel
@@ -166,7 +171,11 @@ def schedule(payload: ScheduleRequest) -> ScheduleResponse:
 
     for node in active_nodes:
         duration = scale_value(node.duration, scale)
-        work_hours_per_week = scale_value(node.workHoursPerWeek, scale)
+        effective_multiplier = node.parallelizationMultiplier if node.id in parallelized_targets else 1
+        work_hours_per_week = scale_value(
+            node.workHoursPerWeek * effective_multiplier,
+            scale,
+        )
         start = model.NewIntVar(0, horizon, f"start_{node.id}")
         end = model.NewIntVar(0, horizon, f"end_{node.id}")
         model.Add(end == start + duration)
@@ -216,7 +225,10 @@ def schedule(payload: ScheduleRequest) -> ScheduleResponse:
         target_start = start_vars[edge.target]
 
         if edge.source in active_node_ids:
-            model.Add(target_start >= end_vars[edge.source])
+            if edge.parallelized:
+                model.Add(target_start >= start_vars[edge.source])
+            else:
+                model.Add(target_start >= end_vars[edge.source])
 
     makespan = model.NewIntVar(0, horizon, "makespan")
     model.AddMaxEquality(makespan, list(end_vars.values()))

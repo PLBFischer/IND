@@ -1,4 +1,5 @@
 import type { FlowEdge, FlowNode } from '../types/graph';
+import { getEffectiveNodeCost } from './graph';
 
 export const formatMetric = (value: number) => {
   if (Number.isNaN(value)) {
@@ -8,8 +9,11 @@ export const formatMetric = (value: number) => {
   return Number.isInteger(value) ? `${value}` : value.toFixed(2).replace(/\.?0+$/, '');
 };
 
-export const getTotalCost = (nodes: FlowNode[]) =>
-  nodes.reduce((sum, node) => sum + (node.completed ? 0 : node.cost), 0);
+export const getTotalCost = (nodes: FlowNode[], edges: FlowEdge[]) =>
+  nodes.reduce(
+    (sum, node) => sum + (node.completed ? 0 : getEffectiveNodeCost(node, edges)),
+    0,
+  );
 
 export const getTotalDuration = (nodes: FlowNode[], edges: FlowEdge[]) => {
   if (nodes.length === 0) {

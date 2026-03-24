@@ -5,8 +5,14 @@ import { NodeEditor } from './components/NodeEditor';
 import { Toolbar } from './components/Toolbar';
 import { useLocalStorageGraph } from './hooks/useLocalStorageGraph';
 import type { EditorMode, FlowNode, ScheduleResult } from './types/graph';
-import { createId, edgeExists, getNodeById } from './utils/graph';
+import {
+  createId,
+  edgeExists,
+  getNodeById,
+  hasIncomingParallelizedEdge,
+} from './utils/graph';
 import { formatMetric, getTotalCost } from './utils/metrics';
+import { STORAGE_KEY } from './utils/constants';
 
 type DragState = {
   nodeId: string;
@@ -29,13 +35,17 @@ const INITIAL_NODE_POSITION = {
 
 const DRAG_THRESHOLD_PX = 6;
 const SCHEDULER_API_BASE = import.meta.env.VITE_SCHEDULER_API_URL ?? '/api';
+type InteractionMode =
+  | { type: 'connect'; nodeId: string }
+  | { type: 'parallelize'; nodeId: string }
+  | null;
 
 function App() {
   const { nodes, edges, personnel, setNodes, setEdges, setPersonnel } =
     useLocalStorageGraph();
   const [editorMode, setEditorMode] = useState<EditorMode>('closed');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [connectSourceId, setConnectSourceId] = useState<string | null>(null);
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>(null);
   const [schedule, setSchedule] = useState<ScheduleResult | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
@@ -47,7 +57,10 @@ function App() {
   const scheduleRequestIdRef = useRef(0);
 
   const selectedNode = getNodeById(nodes, selectedNodeId);
-  const totalCost = formatMetric(getTotalCost(nodes));
+  const totalCost = formatMetric(getTotalCost(nodes, edges));
+  const showParallelizationMultiplier = selectedNode
+    ? hasIncomingParallelizedEdge(edges, selectedNode.id)
+    : false;
   const schedulingInput = {
     personnel: personnel.map((person) => ({
       name: person.name,
@@ -58,10 +71,18 @@ function App() {
       title: node.title,
       duration: node.duration,
       workHoursPerWeek: node.workHoursPerWeek,
+      parallelizationMultiplier: hasIncomingParallelizedEdge(edges, node.id)
+        ? node.parallelizationMultiplier
+        : 1,
       operators: node.operators,
       completed: node.completed,
     })),
-    edges,
+    edges: edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      parallelized: edge.parallelized,
+    })),
   };
   const schedulingSignature = JSON.stringify(schedulingInput);
   const plannedDuration = isAssignedView && schedule
@@ -70,6 +91,16 @@ function App() {
   const scheduleByNodeId = Object.fromEntries(
     (isAssignedView ? schedule?.nodes ?? [] : []).map((node) => [node.nodeId, node]),
   );
+  const interactiveNodeIds =
+    interactionMode?.type === 'connect'
+      ? nodes
+          .filter((node) => node.id !== interactionMode.nodeId)
+          .map((node) => node.id)
+      : interactionMode?.type === 'parallelize'
+        ? edges
+            .filter((edge) => edge.target === interactionMode.nodeId)
+            .map((edge) => edge.source)
+        : [];
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -134,8 +165,8 @@ function App() {
         return;
       }
 
-      if (connectSourceId) {
-        setConnectSourceId(null);
+      if (interactionMode) {
+        setInteractionMode(null);
         return;
       }
 
@@ -147,23 +178,23 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [connectSourceId, editorMode]);
+  }, [interactionMode, editorMode]);
 
   const openCreateEditor = () => {
-    setConnectSourceId(null);
+    setInteractionMode(null);
     setSelectedNodeId(null);
     setEditorMode('create');
   };
 
   const closeEditor = () => {
-    setConnectSourceId(null);
+    setInteractionMode(null);
     setEditorMode('closed');
     setSelectedNodeId(null);
   };
 
   const handleCanvasClick = () => {
     setSuppressedClickNodeId(null);
-    setConnectSourceId(null);
+    setInteractionMode(null);
     setSelectedNodeId(null);
     setEditorMode('closed');
   };
@@ -178,24 +209,51 @@ function App() {
       setSuppressedClickNodeId(null);
     }
 
-    if (connectSourceId) {
-      if (connectSourceId === id) {
+    if (interactionMode?.type === 'connect') {
+      if (interactionMode.nodeId === id) {
         return;
       }
 
-      if (!edgeExists(edges, connectSourceId, id)) {
+      if (!edgeExists(edges, interactionMode.nodeId, id)) {
         setEdges((current) => [
           ...current,
           {
             id: createId('edge'),
-            source: connectSourceId,
+            source: interactionMode.nodeId,
             target: id,
+            parallelized: false,
           },
         ]);
       }
 
-      setSelectedNodeId(connectSourceId);
-      setConnectSourceId(null);
+      setSelectedNodeId(interactionMode.nodeId);
+      setInteractionMode(null);
+      setEditorMode('edit');
+      return;
+    }
+
+    if (interactionMode?.type === 'parallelize') {
+      const matchingEdge = edges.find(
+        (edge) => edge.source === id && edge.target === interactionMode.nodeId,
+      );
+
+      if (!matchingEdge) {
+        return;
+      }
+
+      setEdges((current) =>
+        current.map((edge) =>
+          edge.id === matchingEdge.id
+            ? {
+                ...edge,
+                parallelized: !edge.parallelized,
+              }
+            : edge,
+        ),
+      );
+
+      setSelectedNodeId(interactionMode.nodeId);
+      setInteractionMode(null);
       setEditorMode('edit');
       return;
     }
@@ -210,6 +268,7 @@ function App() {
     cost: number;
     duration: number;
     workHoursPerWeek: number;
+    parallelizationMultiplier: 1 | 2 | 3 | 4;
     operators: string[];
     completed: boolean;
   }) => {
@@ -285,7 +344,7 @@ function App() {
         (edge) => edge.source !== selectedNodeId && edge.target !== selectedNodeId,
       ),
     );
-    setConnectSourceId(null);
+    setInteractionMode(null);
     setSelectedNodeId(null);
     setEditorMode('closed');
   };
@@ -348,11 +407,35 @@ function App() {
     setIsAssignedView(true);
   };
 
+  const handleExport = () => {
+    const payload = {
+      storageKey: STORAGE_KEY,
+      exportedAt: new Date().toISOString(),
+      graph: {
+        nodes,
+        edges,
+        personnel,
+      },
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: 'application/json',
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    link.href = url;
+    link.download = `pipeline-graph-${timestamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
   const handleNodePointerDown = (
     id: string,
     event: ReactPointerEvent<HTMLButtonElement>,
   ) => {
-    if (connectSourceId) {
+    if (interactionMode) {
       return;
     }
 
@@ -393,6 +476,7 @@ function App() {
         onUpdatePersonHours={handleUpdatePersonHours}
         onRemovePerson={handleRemovePerson}
         onAssign={handleAssign}
+        onExport={handleExport}
         onAddNode={openCreateEditor}
       />
       {scheduleError || schedule?.diagnostics.length ? (
@@ -409,7 +493,8 @@ function App() {
           edges={edges}
           scheduleByNodeId={scheduleByNodeId}
           selectedNodeId={selectedNodeId}
-          connectSourceId={connectSourceId}
+          interactiveNodeIds={interactiveNodeIds}
+          activeNodeId={interactionMode?.nodeId ?? null}
           canvasRef={canvasRef}
           scrollRef={scrollRef}
           onCanvasClick={handleCanvasClick}
@@ -420,16 +505,23 @@ function App() {
           mode={editorMode}
           node={selectedNode}
           personnel={personnel}
-          isConnectMode={Boolean(connectSourceId)}
+          showParallelizationMultiplier={showParallelizationMultiplier}
+          isConnectMode={interactionMode?.type === 'connect'}
+          isParallelizeMode={interactionMode?.type === 'parallelize'}
           onClose={closeEditor}
           onSave={handleSaveNode}
           onDelete={handleDeleteNode}
           onStartConnect={() => {
             if (selectedNodeId) {
-              setConnectSourceId(selectedNodeId);
+              setInteractionMode({ type: 'connect', nodeId: selectedNodeId });
             }
           }}
-          onCancelConnect={() => setConnectSourceId(null)}
+          onStartParallelize={() => {
+            if (selectedNodeId) {
+              setInteractionMode({ type: 'parallelize', nodeId: selectedNodeId });
+            }
+          }}
+          onCancelConnect={() => setInteractionMode(null)}
         />
       </div>
     </div>

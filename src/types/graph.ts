@@ -10,6 +10,7 @@ export type FlowNode = {
   cost: number;
   duration: number;
   workHoursPerWeek: number;
+  parallelizationMultiplier: 1 | 2 | 3 | 4;
   operators: string[];
   completed: boolean;
   x: number;
@@ -20,6 +21,7 @@ export type FlowEdge = {
   id: string;
   source: string;
   target: string;
+  parallelized: boolean;
 };
 
 export type ScheduledNode = {

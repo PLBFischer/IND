@@ -1,10 +1,16 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { NODE_HEADER_HEIGHT, NODE_MIN_HEIGHT, NODE_WIDTH } from '../utils/constants';
+import {
+  getEffectiveNodeCost,
+  getEffectiveNodeWorkHoursPerWeek,
+  getEffectiveParallelizationMultiplier,
+} from '../utils/graph';
 import { formatMetric } from '../utils/metrics';
-import type { FlowNode as FlowNodeType, ScheduledNode } from '../types/graph';
+import type { FlowEdge, FlowNode as FlowNodeType, ScheduledNode } from '../types/graph';
 
 type FlowNodeProps = {
   node: FlowNodeType;
+  edges: FlowEdge[];
   scheduleNode: ScheduledNode | null;
   selected: boolean;
   connectable: boolean;
@@ -15,6 +21,7 @@ type FlowNodeProps = {
 
 export function FlowNode({
   node,
+  edges,
   scheduleNode,
   selected,
   connectable,
@@ -22,6 +29,13 @@ export function FlowNode({
   onSelect,
   onPointerDown,
 }: FlowNodeProps) {
+  const effectiveCost = getEffectiveNodeCost(node, edges);
+  const effectiveWorkHoursPerWeek = getEffectiveNodeWorkHoursPerWeek(node, edges);
+  const effectiveParallelizationMultiplier = getEffectiveParallelizationMultiplier(
+    node,
+    edges,
+  );
+
   const className = [
     'flow-node',
     selected ? 'flow-node--selected' : '',
@@ -52,6 +66,11 @@ export function FlowNode({
     >
       <div className="flow-node__header" style={{ height: NODE_HEADER_HEIGHT }}>
         <span>{node.title}</span>
+        {effectiveParallelizationMultiplier > 1 ? (
+          <span className="flow-node__multiplier">
+            {effectiveParallelizationMultiplier}x
+          </span>
+        ) : null}
       </div>
       <div className="flow-node__body">
         <p>{node.content}</p>
@@ -71,7 +90,7 @@ export function FlowNode({
           <dl className="flow-node__metrics">
             <div>
               <dt>Cost</dt>
-              <dd>${formatMetric(node.cost)}</dd>
+              <dd>${formatMetric(effectiveCost)}</dd>
             </div>
             <div>
               <dt>Duration</dt>
@@ -79,7 +98,7 @@ export function FlowNode({
             </div>
             <div>
               <dt>Workload</dt>
-              <dd>{formatMetric(node.workHoursPerWeek)} hrs/wk</dd>
+              <dd>{formatMetric(effectiveWorkHoursPerWeek)} hrs/wk</dd>
             </div>
           </dl>
         )}

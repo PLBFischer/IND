@@ -43,7 +43,9 @@ export function EdgeLayer({ nodes, edges }: EdgeLayerProps) {
           <path
             key={edge.id}
             d={path}
-            className="edge-layer__path"
+            className={`edge-layer__path${
+              edge.parallelized ? ' edge-layer__path--parallelized' : ''
+            }`}
             markerEnd="url(#edge-arrow)"
           />
         );

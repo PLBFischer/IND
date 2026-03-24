@@ -13,7 +13,8 @@ type CanvasProps = {
   edges: FlowEdge[];
   scheduleByNodeId: Record<string, ScheduledNode>;
   selectedNodeId: string | null;
-  connectSourceId: string | null;
+  interactiveNodeIds: string[];
+  activeNodeId: string | null;
   canvasRef: RefObject<HTMLDivElement>;
   scrollRef: RefObject<HTMLDivElement>;
   onCanvasClick: () => void;
@@ -29,7 +30,8 @@ export function Canvas({
   edges,
   scheduleByNodeId,
   selectedNodeId,
-  connectSourceId,
+  interactiveNodeIds,
+  activeNodeId,
   canvasRef,
   scrollRef,
   onCanvasClick,
@@ -56,10 +58,11 @@ export function Canvas({
             <FlowNode
               key={node.id}
               node={node}
+              edges={edges}
               scheduleNode={scheduleByNodeId[node.id] ?? null}
               selected={selectedNodeId === node.id}
-              connectable={Boolean(connectSourceId && connectSourceId !== node.id)}
-              connectingFrom={connectSourceId === node.id}
+              connectable={interactiveNodeIds.includes(node.id)}
+              connectingFrom={activeNodeId === node.id}
               onSelect={onNodeClick}
               onPointerDown={onNodePointerDown}
             />

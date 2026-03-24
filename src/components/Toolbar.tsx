@@ -12,6 +12,7 @@ type ToolbarProps = {
   onUpdatePersonHours: (name: string, hoursPerWeek: number) => void;
   onRemovePerson: (name: string) => void;
   onAssign: () => void;
+  onExport: () => void;
   onAddNode: () => void;
 };
 
@@ -26,6 +27,7 @@ export function Toolbar({
   onUpdatePersonHours,
   onRemovePerson,
   onAssign,
+  onExport,
   onAddNode,
 }: ToolbarProps) {
   return (
@@ -58,6 +60,9 @@ export function Toolbar({
           disabled={!canAssign || isAssigning}
         >
           {isAssigning ? 'Assigning...' : 'Assign'}
+        </button>
+        <button type="button" className="button" onClick={onExport}>
+          Export
         </button>
         <button type="button" className="button button--primary" onClick={onAddNode}>
           Add Node

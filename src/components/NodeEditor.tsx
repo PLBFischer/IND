@@ -5,7 +5,9 @@ type NodeEditorProps = {
   mode: EditorMode;
   node: FlowNode | null;
   personnel: Personnel[];
+  showParallelizationMultiplier: boolean;
   isConnectMode: boolean;
+  isParallelizeMode: boolean;
   onClose: () => void;
   onSave: (values: {
     title: string;
@@ -13,11 +15,13 @@ type NodeEditorProps = {
     cost: number;
     duration: number;
     workHoursPerWeek: number;
+    parallelizationMultiplier: 1 | 2 | 3 | 4;
     operators: string[];
     completed: boolean;
   }) => void;
   onDelete: () => void;
   onStartConnect: () => void;
+  onStartParallelize: () => void;
   onCancelConnect: () => void;
 };
 
@@ -25,11 +29,14 @@ export function NodeEditor({
   mode,
   node,
   personnel,
+  showParallelizationMultiplier,
   isConnectMode,
+  isParallelizeMode,
   onClose,
   onSave,
   onDelete,
   onStartConnect,
+  onStartParallelize,
   onCancelConnect,
 }: NodeEditorProps) {
   const [title, setTitle] = useState('');
@@ -37,6 +44,7 @@ export function NodeEditor({
   const [cost, setCost] = useState('0');
   const [duration, setDuration] = useState('0');
   const [workHoursPerWeek, setWorkHoursPerWeek] = useState('40');
+  const [parallelizationMultiplier, setParallelizationMultiplier] = useState<1 | 2 | 3 | 4>(1);
   const [operators, setOperators] = useState<string[]>([]);
   const [isOperatorMenuOpen, setIsOperatorMenuOpen] = useState(false);
   const [completed, setCompleted] = useState(false);
@@ -49,6 +57,7 @@ export function NodeEditor({
       setCost(`${node.cost}`);
       setDuration(`${node.duration}`);
       setWorkHoursPerWeek(`${node.workHoursPerWeek}`);
+      setParallelizationMultiplier(node.parallelizationMultiplier);
       setOperators(node.operators);
       setIsOperatorMenuOpen(false);
       setCompleted(node.completed);
@@ -62,6 +71,7 @@ export function NodeEditor({
       setCost('0');
       setDuration('0');
       setWorkHoursPerWeek('40');
+      setParallelizationMultiplier(1);
       setOperators([]);
       setIsOperatorMenuOpen(false);
       setCompleted(false);
@@ -74,6 +84,12 @@ export function NodeEditor({
       current.filter((operator) => personnel.some((person) => person.name === operator)),
     );
   }, [personnel]);
+
+  useEffect(() => {
+    if (!showParallelizationMultiplier) {
+      setParallelizationMultiplier(1);
+    }
+  }, [showParallelizationMultiplier]);
 
   if (mode === 'closed') {
     return null;
@@ -98,6 +114,15 @@ export function NodeEditor({
           <p>Select a target node to create a connection.</p>
           <button type="button" className="button" onClick={onCancelConnect}>
             Cancel Connect
+          </button>
+        </div>
+      ) : null}
+
+      {isParallelizeMode && isEditing ? (
+        <div className="editor__notice">
+          <p>Select an existing predecessor to toggle parallelization on that edge.</p>
+          <button type="button" className="button" onClick={onCancelConnect}>
+            Cancel Parallelize
           </button>
         </div>
       ) : null}
@@ -132,6 +157,7 @@ export function NodeEditor({
             cost: nextCost,
             duration: nextDuration,
             workHoursPerWeek: nextWorkHoursPerWeek,
+            parallelizationMultiplier,
             operators,
             completed,
           });
@@ -194,6 +220,23 @@ export function NodeEditor({
             placeholder="40"
           />
         </label>
+
+        {showParallelizationMultiplier ? (
+          <label className="field">
+            <span>Parallelization Multiplier</span>
+            <select
+              value={parallelizationMultiplier}
+              onChange={(event) =>
+                setParallelizationMultiplier(Number(event.target.value) as 1 | 2 | 3 | 4)
+              }
+            >
+              <option value={1}>1x</option>
+              <option value={2}>2x</option>
+              <option value={3}>3x</option>
+              <option value={4}>4x</option>
+            </select>
+          </label>
+        ) : null}
 
         <div className="field">
           <span>Eligible Operators</span>
@@ -263,6 +306,9 @@ export function NodeEditor({
         <div className="editor__footer">
           <button type="button" className="button" onClick={onStartConnect}>
             Connect
+          </button>
+          <button type="button" className="button" onClick={onStartParallelize}>
+            Parallelize
           </button>
           <button type="button" className="button button--danger" onClick={onDelete}>
             Delete

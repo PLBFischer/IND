@@ -17,6 +17,7 @@ const defaultState: GraphState = {
       cost: 2400,
       duration: 6,
       workHoursPerWeek: 16,
+      parallelizationMultiplier: 1,
       operators: ['Avery Chen'],
       completed: false,
       x: 180,
@@ -29,6 +30,7 @@ const defaultState: GraphState = {
       cost: 1800,
       duration: 4,
       workHoursPerWeek: 20,
+      parallelizationMultiplier: 1,
       operators: ['Morgan Patel', 'Sam Rivera'],
       completed: false,
       x: 540,
@@ -40,6 +42,7 @@ const defaultState: GraphState = {
       id: 'edge_orders_enrichment',
       source: 'node_orders',
       target: 'node_enrichment',
+      parallelized: false,
     },
   ],
   personnel: [
@@ -75,12 +78,21 @@ const readState = (): GraphState => {
         duration: typeof node.duration === 'number' ? node.duration : 0,
         workHoursPerWeek:
           typeof node.workHoursPerWeek === 'number' ? node.workHoursPerWeek : 40,
+        parallelizationMultiplier:
+          node.parallelizationMultiplier === 2 ||
+          node.parallelizationMultiplier === 3 ||
+          node.parallelizationMultiplier === 4
+            ? node.parallelizationMultiplier
+            : 1,
         operators: Array.isArray(node.operators)
           ? node.operators.filter((operator): operator is string => typeof operator === 'string')
           : [],
         completed: typeof node.completed === 'boolean' ? node.completed : false,
       })),
-      edges: parsed.edges,
+      edges: parsed.edges.map((edge) => ({
+        ...edge,
+        parallelized: typeof edge.parallelized === 'boolean' ? edge.parallelized : false,
+      })),
       personnel: Array.isArray(parsed.personnel)
         ? parsed.personnel.flatMap((person) => {
             if (typeof person === 'string') {
