@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { AcceleratePanel } from './components/AcceleratePanel';
 import { Canvas } from './components/Canvas';
-import { ChatPanel } from './components/ChatPanel';
 import { DeepRiskPanel } from './components/DeepRiskPanel';
 import { EvidencePanel } from './components/EvidencePanel';
 import { NodeEditor } from './components/NodeEditor';
@@ -17,8 +16,6 @@ import {
 import type {
   AccelerateResponse,
   AccelerationProposal,
-  ChatMessage,
-  ChatResponse,
   DeepRiskAnalysis,
   DeepRiskResponse,
   EvidenceQueryResponse,
@@ -165,10 +162,6 @@ function App() {
   const [accelerateStopReason, setAccelerateStopReason] = useState<string | null>(null);
   const [rejectedProposalIds, setRejectedProposalIds] = useState<string[]>([]);
   const [suppressedClickNodeId, setSuppressedClickNodeId] = useState<string | null>(null);
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [isChatLoading, setIsChatLoading] = useState(false);
-  const [chatError, setChatError] = useState<string | null>(null);
   const [isEvidenceOpen, setIsEvidenceOpen] = useState(false);
   const [evidenceQuery, setEvidenceQuery] = useState('');
   const [evidenceResponse, setEvidenceResponse] = useState<EvidenceQueryResponse | null>(
@@ -196,7 +189,6 @@ function App() {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const scheduleRequestIdRef = useRef(0);
   const accelerateAbortRef = useRef<AbortController | null>(null);
-  const chatAbortRef = useRef<AbortController | null>(null);
   const evidenceAbortRef = useRef<AbortController | null>(null);
   const reviewAbortRef = useRef<AbortController | null>(null);
   const riskAbortRef = useRef<AbortController | null>(null);
@@ -216,6 +208,9 @@ function App() {
   const canAccelerate = nodes.length > 0 && budgetUsd !== null;
   const schedulingSignature = JSON.stringify(scheduleGraphInput);
   const analysisSignature = JSON.stringify(analysisGraph);
+  const plannedCostDisplay = `${`$${totalCost}`} / ${
+    budgetUsd !== null ? `$${formatMetric(budgetUsd)}` : 'No budget'
+  }`;
   const plannedDuration = isAssignedView && schedule
     ? `${formatMetric(schedule.makespan)} weeks`
     : 'Not run';
@@ -857,63 +852,6 @@ function App() {
     centerNodeInView(nodeId);
   };
 
-  const handleSendChat = async (content: string) => {
-    const nextMessages: ChatMessage[] = [
-      ...chatMessages,
-      {
-        role: 'user',
-        content,
-        referencedNodeIds: [],
-      },
-    ];
-
-    chatAbortRef.current?.abort();
-    const controller = new AbortController();
-    chatAbortRef.current = controller;
-    setChatMessages(nextMessages);
-    setChatError(null);
-    setIsChatLoading(true);
-    setIsChatOpen(true);
-
-    try {
-      const response = await fetch(`${SCHEDULER_API_BASE}/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: nextMessages,
-          graph: analysisGraph,
-          schedule,
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { detail?: string }
-          | null;
-        throw new Error(payload?.detail ?? 'Grounded chat could not answer the question.');
-      }
-
-      const payload = (await response.json()) as ChatResponse;
-      setChatMessages((current) => [...current, payload.message]);
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return;
-      }
-
-      setChatError(
-        error instanceof Error ? error.message : 'Grounded chat could not answer the question.',
-      );
-    } finally {
-      if (chatAbortRef.current === controller) {
-        chatAbortRef.current = null;
-      }
-      setIsChatLoading(false);
-    }
-  };
-
   const requestEvidenceQuery = async () => {
     const nextQuery = evidenceQuery.trim();
     if (!nextQuery) {
@@ -1174,12 +1112,6 @@ function App() {
     setAccelerateStopReason(null);
     setRejectedProposalIds([]);
     setSuppressedClickNodeId(null);
-    chatAbortRef.current?.abort();
-    chatAbortRef.current = null;
-    setIsChatOpen(false);
-    setChatMessages([]);
-    setIsChatLoading(false);
-    setChatError(null);
     evidenceAbortRef.current?.abort();
     evidenceAbortRef.current = null;
     setIsEvidenceOpen(false);
@@ -1265,34 +1197,18 @@ function App() {
   return (
     <div className="app-shell">
       <Toolbar
-        budgetUsd={budgetUsd}
-        plannedCost={`$${totalCost}`}
+        plannedCostDisplay={plannedCostDisplay}
         plannedDuration={plannedDuration}
-        personnel={personnel}
         isAssigning={isAssigning}
         canAssign={nodes.length > 0}
         isAssignedView={isAssignedView}
         isAccelerating={isAccelerating || Boolean(accelerateProposal || accelerateError || accelerateStopReason)}
         canAccelerate={canAccelerate}
-        isChatOpen={isChatOpen}
         isEvidenceOpen={isEvidenceOpen}
         isReviewOpen={isReviewOpen}
         isReviewing={isReviewLoading}
-        onAddPerson={handleAddPerson}
-        onUpdatePersonHours={handleUpdatePersonHours}
-        onRemovePerson={handleRemovePerson}
-        onBudgetChange={handleBudgetChange}
         onAssign={handleAssign}
         onAccelerate={handleAccelerate}
-        onToggleChat={() => {
-          if (isChatOpen) {
-            chatAbortRef.current?.abort();
-            chatAbortRef.current = null;
-            setIsChatLoading(false);
-          }
-          setChatError(null);
-          setIsChatOpen((current) => !current);
-        }}
         onToggleEvidence={() => {
           if (isEvidenceOpen) {
             evidenceAbortRef.current?.abort();
@@ -1333,7 +1249,13 @@ function App() {
       <div className="workspace">
         <ProgramContextPanel
           program={program}
-          onChange={handleProgramChange}
+          budgetUsd={budgetUsd}
+          personnel={personnel}
+          onProgramChange={handleProgramChange}
+          onBudgetChange={handleBudgetChange}
+          onAddPerson={handleAddPerson}
+          onUpdatePersonHours={handleUpdatePersonHours}
+          onRemovePerson={handleRemovePerson}
         />
         <Canvas
           nodes={nodes}
@@ -1394,22 +1316,6 @@ function App() {
             setDeepRiskError(null);
             setDeepRiskAnalysis(null);
           }}
-        />
-        <ChatPanel
-          isOpen={isChatOpen}
-          isLoading={isChatLoading}
-          error={chatError}
-          messages={chatMessages}
-          nodes={nodes}
-          onClose={() => {
-            chatAbortRef.current?.abort();
-            chatAbortRef.current = null;
-            setIsChatLoading(false);
-            setChatError(null);
-            setIsChatOpen(false);
-          }}
-          onSend={handleSendChat}
-          onReferenceClick={handleChatReferenceClick}
         />
         <EvidencePanel
           isOpen={isEvidenceOpen}

@@ -1,9 +1,15 @@
 import { useState } from 'react';
-import type { ProgramContext } from '../types/graph';
+import type { Personnel, ProgramContext } from '../types/graph';
 
 type ProgramContextPanelProps = {
   program: ProgramContext;
-  onChange: (updates: Partial<ProgramContext>) => void;
+  budgetUsd: number | null;
+  personnel: Personnel[];
+  onProgramChange: (updates: Partial<ProgramContext>) => void;
+  onBudgetChange: (value: string) => void;
+  onAddPerson: (name: string, hoursPerWeek: number) => void;
+  onUpdatePersonHours: (name: string, hoursPerWeek: number) => void;
+  onRemovePerson: (name: string) => void;
 };
 
 const getSummaryLine = (value: string, emptyText: string) => {
@@ -17,29 +23,47 @@ const getSummaryLine = (value: string, emptyText: string) => {
 
 export function ProgramContextPanel({
   program,
-  onChange,
+  budgetUsd,
+  personnel,
+  onProgramChange,
+  onBudgetChange,
+  onAddPerson,
+  onUpdatePersonHours,
+  onRemovePerson,
 }: ProgramContextPanelProps) {
   const [isOpen, setIsOpen] = useState(
     !program.targetPhase1Design.trim() && !program.targetIndStrategy.trim(),
   );
+  const [name, setName] = useState('');
+  const [hoursPerWeek, setHoursPerWeek] = useState('40');
 
   return (
-    <aside className="program-context-panel" aria-label="Program context">
+    <aside className="program-context-panel" aria-label="Program setup">
       <div className="program-context-panel__header">
         <div>
-          <span className="toolbar__eyebrow">Program Context</span>
-          <h2>{program.programTitle?.trim() || 'Clinic-Bound Story'}</h2>
+          <span className="toolbar__eyebrow">Program Setup</span>
+          <h2>{program.programTitle?.trim() || 'Company Context'}</h2>
         </div>
         <button
           type="button"
           className="icon-button"
           onClick={() => setIsOpen((current) => !current)}
         >
-          {isOpen ? 'Collapse' : 'Edit'}
+          {isOpen ? 'Collapse' : 'Open'}
         </button>
       </div>
 
       <div className="program-context-panel__summary">
+        <p>
+          <span>Budget</span>
+          {budgetUsd !== null ? `$${budgetUsd.toLocaleString()}` : 'No budget set'}
+        </p>
+        <p>
+          <span>Personnel</span>
+          {personnel.length > 0
+            ? `${personnel.length} active team member${personnel.length === 1 ? '' : 's'}`
+            : 'No personnel added'}
+        </p>
         <p>
           <span>Phase 1</span>
           {getSummaryLine(
@@ -58,40 +82,140 @@ export function ProgramContextPanel({
 
       {isOpen ? (
         <div className="program-context-panel__form">
-          <label className="field">
-            <span>Program Title</span>
-            <input
-              value={program.programTitle ?? ''}
-              onChange={(event) =>
-                onChange({ programTitle: event.target.value || undefined })
-              }
-              placeholder="Optional demo program title"
-            />
-          </label>
+          <section className="program-context-panel__section">
+            <div className="program-context-panel__section-header">
+              <h3>Program Context</h3>
+              <span>Clinic-bound narrative and constraints</span>
+            </div>
 
-          <label className="field">
-            <span>Target Phase 1 Design</span>
-            <textarea
-              value={program.targetPhase1Design}
-              onChange={(event) =>
-                onChange({ targetPhase1Design: event.target.value })
-              }
-              rows={5}
-              placeholder="Describe the intended first-in-human study design."
-            />
-          </label>
+            <label className="field">
+              <span>Program Title</span>
+              <input
+                value={program.programTitle ?? ''}
+                onChange={(event) =>
+                  onProgramChange({ programTitle: event.target.value || undefined })
+                }
+                placeholder="Optional demo program title"
+              />
+            </label>
 
-          <label className="field">
-            <span>Target IND Strategy / Story</span>
-            <textarea
-              value={program.targetIndStrategy}
-              onChange={(event) =>
-                onChange({ targetIndStrategy: event.target.value })
-              }
-              rows={5}
-              placeholder="Describe the evidence package and narrative the program is trying to support."
-            />
-          </label>
+            <label className="field">
+              <span>Budget (USD)</span>
+              <input
+                type="number"
+                step="any"
+                min="0"
+                value={budgetUsd ?? ''}
+                onChange={(event) => onBudgetChange(event.target.value)}
+                placeholder="USD"
+              />
+            </label>
+
+            <label className="field">
+              <span>Target Phase 1 Design</span>
+              <textarea
+                value={program.targetPhase1Design}
+                onChange={(event) =>
+                  onProgramChange({ targetPhase1Design: event.target.value })
+                }
+                rows={5}
+                placeholder="Describe the intended first-in-human study design."
+              />
+            </label>
+
+            <label className="field">
+              <span>Target IND Strategy / Story</span>
+              <textarea
+                value={program.targetIndStrategy}
+                onChange={(event) =>
+                  onProgramChange({ targetIndStrategy: event.target.value })
+                }
+                rows={5}
+                placeholder="Describe the evidence package and narrative the program is trying to support."
+              />
+            </label>
+          </section>
+
+          <section className="program-context-panel__section">
+            <div className="program-context-panel__section-header">
+              <h3>Personnel</h3>
+              <span>Team capacity and assignees</span>
+            </div>
+
+            <form
+              className="program-context-panel__person-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+
+                const nextName = name.trim();
+                const nextHoursPerWeek = Number(hoursPerWeek);
+
+                if (!nextName || !Number.isFinite(nextHoursPerWeek)) {
+                  return;
+                }
+
+                onAddPerson(nextName, nextHoursPerWeek);
+                setName('');
+                setHoursPerWeek('40');
+              }}
+            >
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Add person"
+              />
+              <input
+                type="number"
+                step="any"
+                min="0"
+                value={hoursPerWeek}
+                onChange={(event) => setHoursPerWeek(event.target.value)}
+                placeholder="Hours/week"
+              />
+              <button type="submit" className="button button--primary">
+                Add
+              </button>
+            </form>
+
+            {personnel.length === 0 ? (
+              <p className="program-context-panel__empty">No personnel added yet.</p>
+            ) : (
+              <ul className="program-context-panel__personnel-list">
+                {personnel.map((person) => (
+                  <li key={person.name}>
+                    <div className="program-context-panel__personnel-item">
+                      <span>{person.name}</span>
+                      <label className="program-context-panel__hours">
+                        <span>Hours/Week</span>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={person.hoursPerWeek}
+                          onChange={(event) => {
+                            const nextHoursPerWeek = Number(event.target.value);
+                            if (!Number.isFinite(nextHoursPerWeek)) {
+                              return;
+                            }
+
+                            onUpdatePersonHours(person.name, nextHoursPerWeek);
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      onClick={() => onRemovePerson(person.name)}
+                      aria-label={`Remove ${person.name}`}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
       ) : null}
     </aside>
