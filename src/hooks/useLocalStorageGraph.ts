@@ -6,6 +6,7 @@ type GraphState = {
   nodes: FlowNode[];
   edges: FlowEdge[];
   personnel: Personnel[];
+  budgetUsd: number | null;
 };
 
 const defaultState: GraphState = {
@@ -50,6 +51,7 @@ const defaultState: GraphState = {
     { name: 'Morgan Patel', hoursPerWeek: 40 },
     { name: 'Sam Rivera', hoursPerWeek: 40 },
   ],
+  budgetUsd: null,
 };
 
 const readState = (): GraphState => {
@@ -116,6 +118,7 @@ const readState = (): GraphState => {
             return [];
           })
         : defaultState.personnel,
+      budgetUsd: typeof parsed.budgetUsd === 'number' ? parsed.budgetUsd : null,
     };
   } catch {
     return defaultState;
@@ -133,6 +136,7 @@ export const useLocalStorageGraph = () => {
     nodes: state.nodes,
     edges: state.edges,
     personnel: state.personnel,
+    budgetUsd: state.budgetUsd,
     setNodes: (updater: FlowNode[] | ((current: FlowNode[]) => FlowNode[])) => {
       setState((current) => ({
         ...current,
@@ -152,6 +156,15 @@ export const useLocalStorageGraph = () => {
         ...current,
         personnel:
           typeof updater === 'function' ? updater(current.personnel) : updater,
+      }));
+    },
+    setBudgetUsd: (
+      updater: number | null | ((current: number | null) => number | null),
+    ) => {
+      setState((current) => ({
+        ...current,
+        budgetUsd:
+          typeof updater === 'function' ? updater(current.budgetUsd) : updater,
       }));
     },
   };

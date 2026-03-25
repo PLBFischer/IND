@@ -38,4 +38,29 @@ export type ScheduleResult = {
   diagnostics: string[];
 };
 
+export type AccelerationProposal = {
+  candidateId: string;
+  sourceNodeId: string;
+  sourceTitle: string;
+  targetNodeId: string;
+  targetTitle: string;
+  multiplier: 1;
+  resultingPlannedCost: number;
+  resultingPlannedDuration: number;
+  deltaCost: number;
+  deltaDuration: number;
+  summary: string;
+  rationale: string;
+  confidence: 'low' | 'medium' | 'high';
+  fallbackUsed: boolean;
+};
+
+export type AccelerateResponse = {
+  proposal: AccelerationProposal | null;
+  stopReason: string | null;
+  baselinePlannedCost: number;
+  baselinePlannedDuration: number;
+  candidateCount: number;
+};
+
 export type EditorMode = 'closed' | 'create' | 'edit';

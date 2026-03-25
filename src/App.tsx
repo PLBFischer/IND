@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
+import { AcceleratePanel } from './components/AcceleratePanel';
 import { Canvas } from './components/Canvas';
 import { NodeEditor } from './components/NodeEditor';
 import { Toolbar } from './components/Toolbar';
 import { useLocalStorageGraph } from './hooks/useLocalStorageGraph';
-import type { EditorMode, FlowNode, ScheduleResult } from './types/graph';
+import type {
+  AccelerateResponse,
+  AccelerationProposal,
+  EditorMode,
+  FlowNode,
+  ScheduleResult,
+} from './types/graph';
 import {
   createId,
   edgeExists,
@@ -41,7 +48,16 @@ type InteractionMode =
   | null;
 
 function App() {
-  const { nodes, edges, personnel, setNodes, setEdges, setPersonnel } =
+  const {
+    nodes,
+    edges,
+    personnel,
+    budgetUsd,
+    setNodes,
+    setEdges,
+    setPersonnel,
+    setBudgetUsd,
+  } =
     useLocalStorageGraph();
   const [editorMode, setEditorMode] = useState<EditorMode>('closed');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -50,11 +66,19 @@ function App() {
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
   const [isAssignedView, setIsAssignedView] = useState(false);
+  const [isAccelerating, setIsAccelerating] = useState(false);
+  const [accelerateProposal, setAccelerateProposal] = useState<AccelerationProposal | null>(
+    null,
+  );
+  const [accelerateError, setAccelerateError] = useState<string | null>(null);
+  const [accelerateStopReason, setAccelerateStopReason] = useState<string | null>(null);
+  const [rejectedProposalIds, setRejectedProposalIds] = useState<string[]>([]);
   const [suppressedClickNodeId, setSuppressedClickNodeId] = useState<string | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const scheduleRequestIdRef = useRef(0);
+  const accelerateAbortRef = useRef<AbortController | null>(null);
 
   const selectedNode = getNodeById(nodes, selectedNodeId);
   const totalCost = formatMetric(getTotalCost(nodes, edges));
@@ -69,6 +93,8 @@ function App() {
     nodes: nodes.map((node) => ({
       id: node.id,
       title: node.title,
+      content: node.content,
+      cost: node.cost,
       duration: node.duration,
       workHoursPerWeek: node.workHoursPerWeek,
       parallelizationMultiplier: hasIncomingParallelizedEdge(edges, node.id)
@@ -84,6 +110,7 @@ function App() {
       parallelized: edge.parallelized,
     })),
   };
+  const canAccelerate = nodes.length > 0 && budgetUsd !== null;
   const schedulingSignature = JSON.stringify(schedulingInput);
   const plannedDuration = isAssignedView && schedule
     ? `${formatMetric(schedule.makespan)} weeks`
@@ -407,6 +434,159 @@ function App() {
     setIsAssignedView(true);
   };
 
+  const requestAccelerationProposal = async (
+    nextRejectedProposalIds: string[],
+    nextNodes = nodes,
+    nextEdges = edges,
+  ) => {
+    if (budgetUsd === null) {
+      setAccelerateError('Set a budget before running Accelerate.');
+      setAccelerateProposal(null);
+      setAccelerateStopReason(null);
+      return;
+    }
+
+    accelerateAbortRef.current?.abort();
+    const controller = new AbortController();
+    accelerateAbortRef.current = controller;
+    setIsAccelerating(true);
+    setAccelerateError(null);
+    setAccelerateStopReason(null);
+    setAccelerateProposal(null);
+    setIsAssignedView(true);
+
+    try {
+      const response = await fetch(`${SCHEDULER_API_BASE}/accelerate/propose`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          budgetUsd,
+          rejectedCandidateIds: nextRejectedProposalIds,
+          personnel: personnel.map((person) => ({
+            name: person.name,
+            hoursPerWeek: person.hoursPerWeek,
+          })),
+          nodes: nextNodes.map((node) => ({
+            id: node.id,
+            title: node.title,
+            content: node.content,
+            cost: node.cost,
+            duration: node.duration,
+            workHoursPerWeek: node.workHoursPerWeek,
+            parallelizationMultiplier: hasIncomingParallelizedEdge(nextEdges, node.id)
+              ? node.parallelizationMultiplier
+              : 1,
+            operators: node.operators,
+            completed: node.completed,
+          })),
+          edges: nextEdges.map((edge) => ({
+            id: edge.id,
+            source: edge.source,
+            target: edge.target,
+            parallelized: edge.parallelized,
+          })),
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { detail?: string }
+          | null;
+        throw new Error(payload?.detail ?? 'Accelerate could not produce a proposal.');
+      }
+
+      const payload = (await response.json()) as AccelerateResponse;
+      setAccelerateProposal(payload.proposal);
+      setAccelerateStopReason(payload.stopReason);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+
+      setAccelerateProposal(null);
+      setAccelerateStopReason(null);
+      setAccelerateError(
+        error instanceof Error ? error.message : 'Accelerate could not produce a proposal.',
+      );
+    } finally {
+      if (accelerateAbortRef.current === controller) {
+        accelerateAbortRef.current = null;
+      }
+      setIsAccelerating(false);
+    }
+  };
+
+  const handleAccelerate = () => {
+    if (isAccelerating || accelerateProposal || accelerateError || accelerateStopReason) {
+      accelerateAbortRef.current?.abort();
+      accelerateAbortRef.current = null;
+      setIsAccelerating(false);
+      setAccelerateProposal(null);
+      setAccelerateError(null);
+      setAccelerateStopReason(null);
+      setRejectedProposalIds([]);
+      return;
+    }
+
+    setRejectedProposalIds([]);
+    void requestAccelerationProposal([]);
+  };
+
+  const handleAcceptAcceleration = () => {
+    if (!accelerateProposal) {
+      return;
+    }
+
+    const nextEdges = edges.map((edge) =>
+      edge.id === accelerateProposal.candidateId
+        ? {
+            ...edge,
+            parallelized: true,
+          }
+        : edge,
+    );
+    const nextNodes = nodes.map((node) =>
+      node.id === accelerateProposal.targetNodeId
+        ? {
+            ...node,
+            parallelizationMultiplier: 1 as const,
+          }
+        : node,
+    );
+
+    setEdges(nextEdges);
+    setNodes(nextNodes);
+    setRejectedProposalIds([]);
+    void requestAccelerationProposal([], nextNodes, nextEdges);
+  };
+
+  const handleRejectAcceleration = () => {
+    if (!accelerateProposal) {
+      return;
+    }
+
+    const nextRejectedProposalIds = [...rejectedProposalIds, accelerateProposal.candidateId];
+    setRejectedProposalIds(nextRejectedProposalIds);
+    void requestAccelerationProposal(nextRejectedProposalIds);
+  };
+
+  const handleBudgetChange = (value: string) => {
+    if (!value.trim()) {
+      setBudgetUsd(null);
+      return;
+    }
+
+    const nextBudgetUsd = Number(value);
+    if (!Number.isFinite(nextBudgetUsd)) {
+      return;
+    }
+
+    setBudgetUsd(nextBudgetUsd);
+  };
+
   const handleExport = () => {
     const payload = {
       storageKey: STORAGE_KEY,
@@ -415,6 +595,7 @@ function App() {
         nodes,
         edges,
         personnel,
+        budgetUsd,
       },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -466,16 +647,21 @@ function App() {
   return (
     <div className="app-shell">
       <Toolbar
+        budgetUsd={budgetUsd}
         plannedCost={`$${totalCost}`}
         plannedDuration={plannedDuration}
         personnel={personnel}
         isAssigning={isAssigning}
         canAssign={nodes.length > 0}
         isAssignedView={isAssignedView}
+        isAccelerating={isAccelerating || Boolean(accelerateProposal || accelerateError || accelerateStopReason)}
+        canAccelerate={canAccelerate}
         onAddPerson={handleAddPerson}
         onUpdatePersonHours={handleUpdatePersonHours}
         onRemovePerson={handleRemovePerson}
+        onBudgetChange={handleBudgetChange}
         onAssign={handleAssign}
+        onAccelerate={handleAccelerate}
         onExport={handleExport}
         onAddNode={openCreateEditor}
       />
@@ -522,6 +708,15 @@ function App() {
             }
           }}
           onCancelConnect={() => setInteractionMode(null)}
+        />
+        <AcceleratePanel
+          proposal={accelerateProposal}
+          isLoading={isAccelerating}
+          error={accelerateError}
+          stopReason={accelerateStopReason}
+          onAccept={handleAcceptAcceleration}
+          onReject={handleRejectAcceleration}
+          onStop={handleAccelerate}
         />
       </div>
     </div>

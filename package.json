@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:server": ".venv/bin/uvicorn backend.app:app --reload --host 127.0.0.1 --port 8000",
+    "dev:server": "set -a && source .env && set +a && .venv/bin/uvicorn backend.app:app --reload --host 127.0.0.1 --port 8000",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
