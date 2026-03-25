@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type {
-  PointerEvent as ReactPointerEvent,
-  WheelEvent as ReactWheelEvent,
-} from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { AcceleratePanel } from './components/AcceleratePanel';
 import { Canvas } from './components/Canvas';
 import { ChatPanel } from './components/ChatPanel';
@@ -29,7 +26,7 @@ import {
   hasIncomingParallelizedEdge,
 } from './utils/graph';
 import { formatMetric, getTotalCost } from './utils/metrics';
-import { STORAGE_KEY } from './utils/constants';
+import { STORAGE_KEY, WORKSPACE_MARGIN } from './utils/constants';
 
 type DragState = {
   nodeId: string;
@@ -44,6 +41,15 @@ type DragState = {
   startClientY: number;
   hasMoved: boolean;
   zoom: number;
+};
+
+type PanState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  scrollLeft: number;
+  scrollTop: number;
+  hasMoved: boolean;
 };
 
 const INITIAL_NODE_POSITION = {
@@ -93,13 +99,16 @@ function App() {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
+  const [suppressedCanvasClick, setSuppressedCanvasClick] = useState(false);
   const [zoom, setZoom] = useState(1);
   const dragStateRef = useRef<DragState | null>(null);
+  const panStateRef = useRef<PanState | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const scheduleRequestIdRef = useRef(0);
   const accelerateAbortRef = useRef<AbortController | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
+  const zoomRef = useRef(1);
 
   const selectedNode = getNodeById(nodes, selectedNodeId);
   const totalCost = formatMetric(getTotalCost(nodes, edges));
@@ -151,44 +160,59 @@ function App() {
         : [];
 
   useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
       const dragState = dragStateRef.current;
-      if (!dragState || dragState.pointerId !== event.pointerId) {
+      if (dragState && dragState.pointerId === event.pointerId) {
+        const deltaX = event.clientX - dragState.startClientX;
+        const deltaY = event.clientY - dragState.startClientY;
+        if (!dragState.hasMoved) {
+          dragState.hasMoved =
+            Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD_PX;
+        }
+
+        setNodes((current) =>
+          current.map((node) =>
+            node.id === dragState.nodeId
+              ? {
+                  ...node,
+                  x: Math.max(
+                    24,
+                    (event.clientX -
+                      dragState.canvasLeft +
+                      dragState.scrollLeft) /
+                      dragState.zoom -
+                      dragState.offsetX,
+                  ),
+                  y: Math.max(
+                    24,
+                    (event.clientY -
+                      dragState.canvasTop +
+                      dragState.scrollTop) /
+                      dragState.zoom -
+                      dragState.offsetY,
+                  ),
+                }
+              : node,
+          ),
+        );
         return;
       }
 
-      const deltaX = event.clientX - dragState.startClientX;
-      const deltaY = event.clientY - dragState.startClientY;
-      if (!dragState.hasMoved) {
-        dragState.hasMoved =
-          Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD_PX;
+      const panState = panStateRef.current;
+      const scrollElement = scrollRef.current;
+      if (panState && scrollElement && panState.pointerId === event.pointerId) {
+        const deltaX = event.clientX - panState.startX;
+        const deltaY = event.clientY - panState.startY;
+        if (!panState.hasMoved) {
+          panState.hasMoved = Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD_PX;
+        }
+        scrollElement.scrollLeft = panState.scrollLeft - deltaX;
+        scrollElement.scrollTop = panState.scrollTop - deltaY;
       }
-
-      setNodes((current) =>
-        current.map((node) =>
-          node.id === dragState.nodeId
-            ? {
-                ...node,
-                x: Math.max(
-                  24,
-                  (event.clientX -
-                    dragState.canvasLeft +
-                    dragState.scrollLeft) /
-                    dragState.zoom -
-                    dragState.offsetX,
-                ),
-                y: Math.max(
-                  24,
-                  (event.clientY -
-                    dragState.canvasTop +
-                    dragState.scrollTop) /
-                    dragState.zoom -
-                    dragState.offsetY,
-                ),
-              }
-            : node,
-        ),
-      );
     };
 
     const handlePointerUp = (event: PointerEvent) => {
@@ -197,6 +221,12 @@ function App() {
           setSuppressedClickNodeId(dragStateRef.current.nodeId);
         }
         dragStateRef.current = null;
+      }
+      if (panStateRef.current?.pointerId === event.pointerId) {
+        if (panStateRef.current.hasMoved) {
+          setSuppressedCanvasClick(true);
+        }
+        panStateRef.current = null;
       }
     };
 
@@ -242,6 +272,43 @@ function App() {
     return () => window.clearTimeout(timeoutId);
   }, [highlightedNodeId]);
 
+  useEffect(() => {
+    const scrollElement = scrollRef.current;
+    if (!scrollElement) {
+      return;
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) {
+        return;
+      }
+
+      event.preventDefault();
+      const bounds = scrollElement.getBoundingClientRect();
+      const pointerX = event.clientX - bounds.left;
+      const pointerY = event.clientY - bounds.top;
+
+      setZoom((current) => {
+        const nextZoom = Math.min(
+          MAX_ZOOM,
+          Math.max(MIN_ZOOM, current * Math.exp(-event.deltaY * 0.0015)),
+        );
+        const contentX = (pointerX + scrollElement.scrollLeft) / current;
+        const contentY = (pointerY + scrollElement.scrollTop) / current;
+
+        requestAnimationFrame(() => {
+          scrollElement.scrollLeft = contentX * nextZoom - pointerX;
+          scrollElement.scrollTop = contentY * nextZoom - pointerY;
+        });
+
+        return nextZoom;
+      });
+    };
+
+    scrollElement.addEventListener('wheel', handleWheel, { passive: false });
+    return () => scrollElement.removeEventListener('wheel', handleWheel);
+  }, []);
+
   const openCreateEditor = () => {
     setInteractionMode(null);
     setSelectedNodeId(null);
@@ -255,6 +322,11 @@ function App() {
   };
 
   const handleCanvasClick = () => {
+    if (suppressedCanvasClick) {
+      setSuppressedCanvasClick(false);
+      return;
+    }
+
     setSuppressedClickNodeId(null);
     setInteractionMode(null);
     setSelectedNodeId(null);
@@ -647,35 +719,6 @@ function App() {
     window.URL.revokeObjectURL(url);
   };
 
-  const handleCanvasWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
-    if (!event.ctrlKey) {
-      return;
-    }
-
-    event.preventDefault();
-    const scrollElement = scrollRef.current;
-    if (!scrollElement) {
-      return;
-    }
-
-    const zoomIntensity = 0.0015;
-    const nextZoom = Math.min(
-      MAX_ZOOM,
-      Math.max(MIN_ZOOM, zoom * Math.exp(-event.deltaY * zoomIntensity)),
-    );
-    if (Math.abs(nextZoom - zoom) < 0.001) {
-      return;
-    }
-
-    const bounds = scrollElement.getBoundingClientRect();
-    const pointerX = (event.clientX - bounds.left + scrollElement.scrollLeft) / zoom;
-    const pointerY = (event.clientY - bounds.top + scrollElement.scrollTop) / zoom;
-
-    scrollElement.scrollLeft = pointerX * nextZoom - (event.clientX - bounds.left);
-    scrollElement.scrollTop = pointerY * nextZoom - (event.clientY - bounds.top);
-    setZoom(nextZoom);
-  };
-
   const centerNodeInView = (nodeId: string) => {
     const node = getNodeById(nodes, nodeId);
     const scrollElement = scrollRef.current;
@@ -686,8 +729,8 @@ function App() {
     const targetLeft = Math.max(0, (node.x + 128) * zoom - scrollElement.clientWidth / 2);
     const targetTop = Math.max(0, (node.y + 74) * zoom - scrollElement.clientHeight / 2);
     scrollElement.scrollTo({
-      left: targetLeft,
-      top: targetTop,
+      left: targetLeft + WORKSPACE_MARGIN * zoom,
+      top: targetTop + WORKSPACE_MARGIN * zoom,
       behavior: 'smooth',
     });
   };
@@ -842,6 +885,22 @@ function App() {
     };
   };
 
+  const handleStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const scrollElement = scrollRef.current;
+    if (!scrollElement || interactionMode) {
+      return;
+    }
+
+    panStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: scrollElement.scrollLeft,
+      scrollTop: scrollElement.scrollTop,
+      hasMoved: false,
+    };
+  };
+
   return (
     <div className="app-shell">
       <Toolbar
@@ -895,7 +954,7 @@ function App() {
           canvasRef={canvasRef}
           scrollRef={scrollRef}
           onCanvasClick={handleCanvasClick}
-          onCanvasWheel={handleCanvasWheel}
+          onStagePointerDown={handleStagePointerDown}
           onNodeClick={handleNodeClick}
           onNodePointerDown={handleNodePointerDown}
         />

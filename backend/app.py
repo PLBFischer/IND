@@ -690,11 +690,14 @@ def answer_chat_with_llm(payload: ChatRequest) -> ChatResponse:
             model=os.getenv("OPENAI_CHAT_MODEL", "gpt-5.4-2026-03-05"),
             instructions=(
                 "You are a scientific program planning assistant embedded in a graph-based R&D planning tool. "
-                "Answer the user's question using only the graph data provided in the request. "
+                "Use the current graph snapshot as the sole source of truth for any claims about what experiments exist, what has been completed, what results belong to the user's program, and how nodes in the graph relate to one another. "
+                "You may also use your general scientific and drug-development knowledge to provide interpretation, judgment, suggestions, and opinion. "
                 "The latest graph snapshot in the current request is the source of truth and overrides any earlier conversation content if they conflict. "
+                "When an answer mixes graph-grounded facts and your general knowledge, clearly distinguish them in the wording. "
                 "If the answer depends on specific experiments or milestones, cite the corresponding node IDs in referenced_node_ids. "
+                "Do not write raw node IDs in the prose answer itself; keep node references only in referenced_node_ids. "
                 "Only include node IDs that actually appear in the graph. "
-                "If the graph does not contain enough information, say so explicitly instead of inventing facts. "
+                "If the graph does not contain enough information to support a graph-grounded claim, say so explicitly instead of inventing program facts. "
                 "Keep answers concise but useful for a researcher inspecting the plan."
             ),
             input=[
