@@ -7,6 +7,7 @@ export type FlowNode = {
   id: string;
   title: string;
   content: string;
+  results: string;
   cost: number;
   duration: number;
   workHoursPerWeek: number;
@@ -74,6 +75,26 @@ export type ChatMessage = {
 
 export type ChatResponse = {
   message: ChatMessage;
+};
+
+export type ReviewFinding = {
+  id: string;
+  severity: 'high' | 'medium' | 'low';
+  type:
+    | 'contradiction'
+    | 'outdated_description'
+    | 'redundancy'
+    | 'instrumentation_risk'
+    | 'dependency_mismatch'
+    | 'other';
+  summary: string;
+  details: string;
+  suggestedAction: string;
+  nodeIds: string[];
+};
+
+export type ReviewResponse = {
+  findings: ReviewFinding[];
 };
 
 export type EditorMode = 'closed' | 'create' | 'edit';

@@ -9,7 +9,6 @@ import {
   CANVAS_WIDTH,
   NODE_MIN_HEIGHT,
   NODE_WIDTH,
-  WORKSPACE_MARGIN,
 } from '../utils/constants';
 import { EdgeLayer } from './EdgeLayer';
 import { FlowNode } from './FlowNode';
@@ -23,8 +22,9 @@ type CanvasProps = {
   interactiveNodeIds: string[];
   activeNodeId: string | null;
   zoom: number;
+  viewport: { x: number; y: number };
   canvasRef: RefObject<HTMLDivElement>;
-  scrollRef: RefObject<HTMLDivElement>;
+  viewportRef: RefObject<HTMLDivElement>;
   onCanvasClick: () => void;
   onStagePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onNodeClick: (id: string) => void;
@@ -43,8 +43,9 @@ export function Canvas({
   interactiveNodeIds,
   activeNodeId,
   zoom,
+  viewport,
   canvasRef,
-  scrollRef,
+  viewportRef,
   onCanvasClick,
   onStagePointerDown,
   onNodeClick,
@@ -52,23 +53,14 @@ export function Canvas({
 }: CanvasProps) {
   const maxNodeX = nodes.reduce((max, node) => Math.max(max, node.x), 0);
   const maxNodeY = nodes.reduce((max, node) => Math.max(max, node.y), 0);
-  const contentWidth = Math.max(
-    CANVAS_WIDTH,
-    maxNodeX + NODE_WIDTH + WORKSPACE_MARGIN,
-  );
-  const contentHeight = Math.max(
-    CANVAS_HEIGHT,
-    maxNodeY + NODE_MIN_HEIGHT + WORKSPACE_MARGIN,
-  );
-  const stageWidth = contentWidth + WORKSPACE_MARGIN;
-  const stageHeight = contentHeight + WORKSPACE_MARGIN;
+  const contentWidth = Math.max(CANVAS_WIDTH, maxNodeX + NODE_WIDTH + 1200);
+  const contentHeight = Math.max(CANVAS_HEIGHT, maxNodeY + NODE_MIN_HEIGHT + 1200);
 
   return (
     <main className="canvas-shell">
-      <div ref={scrollRef} className="canvas-scroll">
+      <div ref={viewportRef} className="canvas-scroll">
         <div
           className="canvas-stage"
-          style={{ width: stageWidth * zoom, height: stageHeight * zoom }}
           onPointerDown={onStagePointerDown}
         >
           <div
@@ -77,13 +69,10 @@ export function Canvas({
             style={{
               width: contentWidth,
               height: contentHeight,
-              left: WORKSPACE_MARGIN,
-              top: WORKSPACE_MARGIN,
-              transform: `scale(${zoom})`,
+              transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${zoom})`,
               transformOrigin: 'top left',
             }}
             onClick={onCanvasClick}
-            onPointerDown={onStagePointerDown}
           >
             <EdgeLayer nodes={nodes} edges={edges} />
             {nodes.length === 0 ? (

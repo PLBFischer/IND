@@ -12,12 +12,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from openai import APIError, AuthenticationError, OpenAI
 from ortools.sat.python import cp_model
 from pydantic import BaseModel, Field
+from pydantic_core import ValidationError as PydanticValidationError
 
 
 class NodePayload(BaseModel):
     id: str
     title: str
     content: str = ""
+    results: str = ""
     cost: float = Field(default=0, ge=0)
     duration: float = Field(ge=0)
     workHoursPerWeek: float = Field(ge=0)
@@ -125,6 +127,36 @@ class ChatResponse(BaseModel):
 class ChatChoice(BaseModel):
     answer: str
     referenced_node_ids: list[str] = Field(default_factory=list)
+
+
+class ReviewRequest(BaseModel):
+    graph: GraphPayload
+    schedule: ScheduleResponse | None = None
+
+
+class ReviewFinding(BaseModel):
+    id: str
+    severity: Literal["high", "medium", "low"]
+    type: Literal[
+        "contradiction",
+        "outdated_description",
+        "redundancy",
+        "instrumentation_risk",
+        "dependency_mismatch",
+        "other",
+    ]
+    summary: str
+    details: str
+    suggestedAction: str
+    nodeIds: list[str] = Field(default_factory=list)
+
+
+class ReviewResponse(BaseModel):
+    findings: list[ReviewFinding] = Field(default_factory=list)
+
+
+class ReviewChoice(BaseModel):
+    findings: list[ReviewFinding] = Field(default_factory=list)
 
 
 app = FastAPI(title="Pipeline Scheduler")
@@ -535,6 +567,7 @@ def build_chat_graph_context(payload: ChatRequest) -> dict[str, object]:
                 "id": node.id,
                 "title": node.title,
                 "content": node.content,
+                "results": node.results,
                 "completed": node.completed,
                 "cost_usd": node.cost,
                 "duration_weeks": node.duration,
@@ -780,6 +813,131 @@ def answer_chat_with_llm(payload: ChatRequest) -> ChatResponse:
     )
 
 
+def review_graph_with_llm(payload: ReviewRequest) -> ReviewResponse:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Review requires OPENAI_API_KEY to be set on the backend.",
+        )
+
+    client = OpenAI(api_key=api_key)
+    node_ids = {node.id for node in payload.graph.nodes}
+
+    try:
+        response = client.responses.create(
+            model=os.getenv("OPENAI_REVIEW_MODEL", "gpt-5.4-2026-03-05"),
+            instructions=(
+                "You are reviewing an R&D experiment graph for contradictions, outdated downstream assumptions, redundancies, instrumentation risks, and dependency mismatches. "
+                "Use the current graph snapshot as the sole source of truth for claims about the user's actual program. "
+                "Read both the Description and Results fields for every node. "
+                "Do not limit yourself to completed nodes: intermediate results in ongoing nodes can also invalidate future plans. "
+                "Identify cases where results from one node suggest that another node's description should be updated, reconsidered, split, or removed. "
+                "Focus on high-signal findings rather than exhaustive commentary. Keep each finding concise. "
+                "Do not invent scientific results that are not in the graph. "
+                "Do not write raw node IDs in the prose fields; keep node references only in nodeIds. "
+                "Return at most 8 findings, ordered from most important to least important."
+            ),
+            input=json.dumps(
+                {
+                    "graph_context": build_chat_graph_context(
+                        ChatRequest(messages=[], graph=payload.graph, schedule=payload.schedule)
+                    )
+                }
+            ),
+            max_output_tokens=2400,
+            temperature=0.2,
+            store=False,
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "graph_review",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "findings": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "id": {"type": "string"},
+                                        "severity": {
+                                            "type": "string",
+                                            "enum": ["high", "medium", "low"],
+                                        },
+                                        "type": {
+                                            "type": "string",
+                                            "enum": [
+                                                "contradiction",
+                                                "outdated_description",
+                                                "redundancy",
+                                                "instrumentation_risk",
+                                                "dependency_mismatch",
+                                                "other",
+                                            ],
+                                        },
+                                        "summary": {"type": "string"},
+                                        "details": {"type": "string"},
+                                        "suggestedAction": {"type": "string"},
+                                        "nodeIds": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                        },
+                                    },
+                                    "required": [
+                                        "id",
+                                        "severity",
+                                        "type",
+                                        "summary",
+                                        "details",
+                                        "suggestedAction",
+                                        "nodeIds",
+                                    ],
+                                },
+                            }
+                        },
+                        "required": ["findings"],
+                    },
+                },
+                "verbosity": "low",
+            },
+        )
+    except AuthenticationError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Review could not authenticate with OpenAI: {error}",
+        ) from error
+    except APIError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Review failed while calling OpenAI: {error}",
+        ) from error
+
+    try:
+        choice = ReviewChoice.model_validate_json(response.output_text)
+    except PydanticValidationError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Review produced an incomplete response. Please run Review again.",
+        ) from error
+    findings = [
+        ReviewFinding(
+            id=finding.id,
+            severity=finding.severity,
+            type=finding.type,
+            summary=finding.summary,
+            details=finding.details,
+            suggestedAction=finding.suggestedAction,
+            nodeIds=[node_id for node_id in finding.nodeIds if node_id in node_ids],
+        )
+        for finding in choice.findings
+    ]
+    return ReviewResponse(findings=findings)
+
+
 @app.get("/api/health")
 def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
@@ -879,3 +1037,8 @@ def accelerate_propose(payload: AccelerateRequest) -> AccelerateResponse:
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest) -> ChatResponse:
     return answer_chat_with_llm(payload)
+
+
+@app.post("/api/review", response_model=ReviewResponse)
+def review(payload: ReviewRequest) -> ReviewResponse:
+    return review_graph_with_llm(payload)

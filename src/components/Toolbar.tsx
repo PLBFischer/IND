@@ -13,6 +13,8 @@ type ToolbarProps = {
   isAccelerating: boolean;
   canAccelerate: boolean;
   isChatOpen: boolean;
+  isReviewOpen: boolean;
+  isReviewing: boolean;
   onAddPerson: (name: string, hoursPerWeek: number) => void;
   onUpdatePersonHours: (name: string, hoursPerWeek: number) => void;
   onRemovePerson: (name: string) => void;
@@ -20,6 +22,7 @@ type ToolbarProps = {
   onAssign: () => void;
   onAccelerate: () => void;
   onToggleChat: () => void;
+  onToggleReview: () => void;
   onExport: () => void;
   onImport: (value: string) => string | null;
   onAddNode: () => void;
@@ -36,6 +39,8 @@ export function Toolbar({
   isAccelerating,
   canAccelerate,
   isChatOpen,
+  isReviewOpen,
+  isReviewing,
   onAddPerson,
   onUpdatePersonHours,
   onRemovePerson,
@@ -43,6 +48,7 @@ export function Toolbar({
   onAssign,
   onAccelerate,
   onToggleChat,
+  onToggleReview,
   onExport,
   onImport,
   onAddNode,
@@ -103,6 +109,13 @@ export function Toolbar({
           onClick={onToggleChat}
         >
           ChatGPT
+        </button>
+        <button
+          type="button"
+          className={isReviewOpen ? 'button button--primary' : 'button'}
+          onClick={onToggleReview}
+        >
+          {isReviewing && isReviewOpen ? 'Reviewing...' : 'Review'}
         </button>
         <ImportPanel onApply={onImport} />
         <button type="button" className="button" onClick={onExport}>

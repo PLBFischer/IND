@@ -1,0 +1,341 @@
+{
+  "storageKey": "minimal-flowchart-editor-state",
+  "exportedAt": "2026-03-25T12:30:00Z",
+  "graph": {
+    "budgetUsd": 4200000,
+    "personnel": [
+      {
+        "name": "Ava Kim",
+        "hoursPerWeek": 40
+      },
+      {
+        "name": "Marcus Lee",
+        "hoursPerWeek": 40
+      },
+      {
+        "name": "Priya Raman",
+        "hoursPerWeek": 40
+      },
+      {
+        "name": "Elena Torres",
+        "hoursPerWeek": 40
+      },
+      {
+        "name": "Grace Liu",
+        "hoursPerWeek": 35
+      },
+      {
+        "name": "Liam Foster",
+        "hoursPerWeek": 35
+      }
+    ],
+    "nodes": [
+      {
+        "id": "r01_cell_potency",
+        "title": "Neuronal Potency Screen",
+        "content": "Description: Test compound 11h across 0.1 nM to 1 uM in a neuronal assay to identify the concentration range that gives target engagement and anti-inflammatory activity. Use LC-MS-verified stock solutions and a validated plate reader workflow. The output will define the concentration window for downstream mechanistic work and eventual dose selection.",
+        "results": "Results: Active concentrations were much higher than expected. Robust activity was only seen between 3 and 10 uM, with poor signal below 1 uM. The original low-nanomolar working hypothesis is not supported by this assay.",
+        "cost": 45000,
+        "duration": 4,
+        "workHoursPerWeek": 14,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Ava Kim",
+          "Priya Raman"
+        ],
+        "completed": true,
+        "x": 120,
+        "y": 160
+      },
+      {
+        "id": "r02_lcms_qc",
+        "title": "Analytical QC of Dosing Stocks",
+        "content": "Description: Confirm concentration, identity, and stability of all assay stock solutions and working dilutions by LC-MS before major screening campaigns. This node is intended to prevent misinterpretation caused by degraded or mis-made stocks.",
+        "results": "Results: Two earlier stock batches were under-concentrated by about 35%. The currently qualified replacement batch passed identity and concentration checks and should be used going forward.",
+        "cost": 25000,
+        "duration": 2,
+        "workHoursPerWeek": 10,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Marcus Lee",
+          "Priya Raman"
+        ],
+        "completed": true,
+        "x": 120,
+        "y": 380
+      },
+      {
+        "id": "r03_plate_reader_issue",
+        "title": "Plate Reader Troubleshooting",
+        "content": "Description: Investigate unexplained noise observed in fluorescence readouts from the microplate reader used in cytokine and biomarker assays. Compare instrument output against a backup reader and standard reference plates.",
+        "results": "Results: The primary plate reader was drifting during long runs and produced inflated variance after the first 90 minutes. The backup reader produced stable measurements. Any future fluorescence assay should avoid the original instrument until recalibration is complete.",
+        "cost": 18000,
+        "duration": 2,
+        "workHoursPerWeek": 8,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Marcus Lee"
+        ],
+        "completed": false,
+        "x": 120,
+        "y": 600
+      },
+      {
+        "id": "r04_pbmc_assay",
+        "title": "Human PBMC Cytokine Assay",
+        "content": "Description: Run a human PBMC inflammation assay using the original fluorescence plate reader and test 11h across 1 nM to 300 nM because the project currently assumes low-nanomolar potency. Measure TNFalpha and IL-6 with the standard fluorescence workflow used in the first screening campaign.",
+        "results": "",
+        "cost": 50000,
+        "duration": 4,
+        "workHoursPerWeek": 14,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Ava Kim"
+        ],
+        "completed": false,
+        "x": 760,
+        "y": 120
+      },
+      {
+        "id": "r05_microglia_assay",
+        "title": "Microglia Confirmation Assay",
+        "content": "Description: Confirm anti-inflammatory activity in microglia-like cells using the same 1 nM to 300 nM concentration range selected before the latest potency rerun. Use the legacy screening SOP without changing instrumentation or concentration spacing.",
+        "results": "Results: Interim run gave weak and noisy responses, but the team has not yet updated the written plan.",
+        "cost": 42000,
+        "duration": 4,
+        "workHoursPerWeek": 14,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Ava Kim"
+        ],
+        "completed": false,
+        "x": 760,
+        "y": 320
+      },
+      {
+        "id": "r06_repeat_pbmc_assay",
+        "title": "Repeat Human PBMC Cytokine Assay",
+        "content": "Description: Repeat the human PBMC inflammation assay at the same concentrations and with the same readout plan as the PBMC assay node, to verify reproducibility before moving into animal work. No meaningful procedural changes are planned relative to the first PBMC node.",
+        "results": "",
+        "cost": 52000,
+        "duration": 4,
+        "workHoursPerWeek": 14,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Ava Kim"
+        ],
+        "completed": false,
+        "x": 760,
+        "y": 520
+      },
+      {
+        "id": "r07_formulation_screen",
+        "title": "Tox Formulation Solubility Screen",
+        "content": "Description: Screen oral tox formulation vehicles to identify a system that can support 30 mg/kg dosing with acceptable homogeneity and short-term stability. Use the currently believed potency window to size projected tox exposures.",
+        "results": "Results: Preliminary solubility suggests a 30 mg/kg top dose may be difficult in the first-choice vehicle. Exposure assumptions may need revision if the efficacious concentration range truly sits in the multi-micromolar window.",
+        "cost": 38000,
+        "duration": 3,
+        "workHoursPerWeek": 10,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Elena Torres"
+        ],
+        "completed": false,
+        "x": 760,
+        "y": 720
+      },
+      {
+        "id": "r08_mouse_pk",
+        "title": "Mouse PK Bridging Study",
+        "content": "Description: Characterize oral exposure in mice and compare achieved plasma levels to the concentration range believed to be active in vitro. The study is intended to support later efficacy and tox dose selection.",
+        "results": "Results: At the planned oral dose, plasma exposures aligned poorly with the newly observed 3 to 10 uM active range, suggesting that either higher exposure or a different formulation strategy will be needed.",
+        "cost": 70000,
+        "duration": 5,
+        "workHoursPerWeek": 16,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Marcus Lee",
+          "Grace Liu"
+        ],
+        "completed": false,
+        "x": 760,
+        "y": 920
+      },
+      {
+        "id": "r09_glp_tox",
+        "title": "28-Day Rat GLP Toxicology",
+        "content": "Description: Start definitive 28-day GLP toxicology using dose levels justified by the earlier assumption that low systemic exposure should be sufficient for pharmacology. The protocol text assumes the active in vitro window is sub-micromolar and that 30 mg/kg is an adequate top dose for margin setting.",
+        "results": "",
+        "cost": 900000,
+        "duration": 14,
+        "workHoursPerWeek": 14,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Grace Liu"
+        ],
+        "completed": false,
+        "x": 1420,
+        "y": 180
+      },
+      {
+        "id": "r10_efficacy_mouse",
+        "title": "Mouse Neuroinflammation Efficacy Study",
+        "content": "Description: Run the first in vivo efficacy study in mouse using dose levels back-calculated from the original low-nanomolar potency assumption. The protocol currently does not mention the later PK and potency updates.",
+        "results": "",
+        "cost": 160000,
+        "duration": 8,
+        "workHoursPerWeek": 18,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Grace Liu",
+          "Ava Kim"
+        ],
+        "completed": false,
+        "x": 1420,
+        "y": 420
+      },
+      {
+        "id": "r11_device_validation",
+        "title": "Backup Reader Validation",
+        "content": "Description: Qualify the backup fluorescence reader and update the assay SOP so future biomarker assays can move off the noisy primary instrument. This study exists to support a method change before the next fluorescence-heavy assay campaign.",
+        "results": "",
+        "cost": 22000,
+        "duration": 2,
+        "workHoursPerWeek": 8,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Marcus Lee"
+        ],
+        "completed": false,
+        "x": 1420,
+        "y": 660
+      },
+      {
+        "id": "r12_ind_briefing",
+        "title": "Pre-IND Briefing Package",
+        "content": "Description: Summarize potency, PK, formulation, efficacy, and toxicology assumptions in the pre-IND package. The draft currently states that 11h is active at low nanomolar concentrations and that the project has already resolved the biomarker assay platform for later studies.",
+        "results": "Results: Draft text has not yet been revised after the recent potency rerun, plate reader issue, and PK bridging update.",
+        "cost": 65000,
+        "duration": 5,
+        "workHoursPerWeek": 12,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Liam Foster"
+        ],
+        "completed": false,
+        "x": 1420,
+        "y": 900
+      }
+    ],
+    "edges": [
+      {
+        "id": "re01",
+        "source": "r02_lcms_qc",
+        "target": "r01_cell_potency",
+        "parallelized": false
+      },
+      {
+        "id": "re02",
+        "source": "r01_cell_potency",
+        "target": "r04_pbmc_assay",
+        "parallelized": false
+      },
+      {
+        "id": "re03",
+        "source": "r03_plate_reader_issue",
+        "target": "r04_pbmc_assay",
+        "parallelized": false
+      },
+      {
+        "id": "re04",
+        "source": "r01_cell_potency",
+        "target": "r05_microglia_assay",
+        "parallelized": false
+      },
+      {
+        "id": "re05",
+        "source": "r03_plate_reader_issue",
+        "target": "r05_microglia_assay",
+        "parallelized": false
+      },
+      {
+        "id": "re06",
+        "source": "r04_pbmc_assay",
+        "target": "r06_repeat_pbmc_assay",
+        "parallelized": false
+      },
+      {
+        "id": "re07",
+        "source": "r01_cell_potency",
+        "target": "r07_formulation_screen",
+        "parallelized": false
+      },
+      {
+        "id": "re08",
+        "source": "r01_cell_potency",
+        "target": "r08_mouse_pk",
+        "parallelized": false
+      },
+      {
+        "id": "re09",
+        "source": "r08_mouse_pk",
+        "target": "r09_glp_tox",
+        "parallelized": false
+      },
+      {
+        "id": "re10",
+        "source": "r07_formulation_screen",
+        "target": "r09_glp_tox",
+        "parallelized": false
+      },
+      {
+        "id": "re11",
+        "source": "r01_cell_potency",
+        "target": "r09_glp_tox",
+        "parallelized": false
+      },
+      {
+        "id": "re12",
+        "source": "r08_mouse_pk",
+        "target": "r10_efficacy_mouse",
+        "parallelized": false
+      },
+      {
+        "id": "re13",
+        "source": "r01_cell_potency",
+        "target": "r10_efficacy_mouse",
+        "parallelized": false
+      },
+      {
+        "id": "re14",
+        "source": "r03_plate_reader_issue",
+        "target": "r11_device_validation",
+        "parallelized": false
+      },
+      {
+        "id": "re15",
+        "source": "r07_formulation_screen",
+        "target": "r12_ind_briefing",
+        "parallelized": false
+      },
+      {
+        "id": "re16",
+        "source": "r08_mouse_pk",
+        "target": "r12_ind_briefing",
+        "parallelized": false
+      },
+      {
+        "id": "re17",
+        "source": "r03_plate_reader_issue",
+        "target": "r12_ind_briefing",
+        "parallelized": false
+      },
+      {
+        "id": "re18",
+        "source": "r01_cell_potency",
+        "target": "r12_ind_briefing",
+        "parallelized": false
+      }
+    ]
+  }
+}

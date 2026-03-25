@@ -12,6 +12,7 @@ type NodeEditorProps = {
   onSave: (values: {
     title: string;
     content: string;
+    results: string;
     cost: number;
     duration: number;
     workHoursPerWeek: number;
@@ -41,6 +42,7 @@ export function NodeEditor({
 }: NodeEditorProps) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [results, setResults] = useState('');
   const [cost, setCost] = useState('0');
   const [duration, setDuration] = useState('0');
   const [workHoursPerWeek, setWorkHoursPerWeek] = useState('40');
@@ -54,6 +56,7 @@ export function NodeEditor({
     if (mode === 'edit' && node) {
       setTitle(node.title);
       setContent(node.content);
+      setResults(node.results);
       setCost(`${node.cost}`);
       setDuration(`${node.duration}`);
       setWorkHoursPerWeek(`${node.workHoursPerWeek}`);
@@ -68,6 +71,7 @@ export function NodeEditor({
     if (mode === 'create') {
       setTitle('');
       setContent('');
+      setResults('');
       setCost('0');
       setDuration('0');
       setWorkHoursPerWeek('40');
@@ -154,6 +158,7 @@ export function NodeEditor({
           onSave({
             title: nextTitle,
             content: content.trim(),
+            results: results.trim(),
             cost: nextCost,
             duration: nextDuration,
             workHoursPerWeek: nextWorkHoursPerWeek,
@@ -178,12 +183,22 @@ export function NodeEditor({
         </label>
 
         <label className="field">
-          <span>Content</span>
+          <span>Description</span>
           <textarea
             value={content}
             onChange={(event) => setContent(event.target.value)}
             rows={6}
             placeholder="Description: Joins customer orders"
+          />
+        </label>
+
+        <label className="field">
+          <span>Results</span>
+          <textarea
+            value={results}
+            onChange={(event) => setResults(event.target.value)}
+            rows={6}
+            placeholder="Interim or final findings from this experiment"
           />
         </label>
 

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { AcceleratePanel } from './components/AcceleratePanel';
 import { Canvas } from './components/Canvas';
 import { ChatPanel } from './components/ChatPanel';
 import { NodeEditor } from './components/NodeEditor';
+import { ReviewPanel } from './components/ReviewPanel';
 import { Toolbar } from './components/Toolbar';
 import {
   autoLayoutGraphState,
@@ -17,6 +18,8 @@ import type {
   ChatResponse,
   EditorMode,
   FlowNode,
+  ReviewFinding,
+  ReviewResponse,
   ScheduleResult,
 } from './types/graph';
 import {
@@ -26,29 +29,29 @@ import {
   hasIncomingParallelizedEdge,
 } from './utils/graph';
 import { formatMetric, getTotalCost } from './utils/metrics';
-import { STORAGE_KEY, WORKSPACE_MARGIN } from './utils/constants';
+import { STORAGE_KEY } from './utils/constants';
 
 type DragState = {
   nodeId: string;
   pointerId: number;
   offsetX: number;
   offsetY: number;
-  scrollLeft: number;
-  scrollTop: number;
-  canvasLeft: number;
-  canvasTop: number;
+  viewportLeft: number;
+  viewportTop: number;
   startClientX: number;
   startClientY: number;
   hasMoved: boolean;
   zoom: number;
+  viewportX: number;
+  viewportY: number;
 };
 
 type PanState = {
   pointerId: number;
   startX: number;
   startY: number;
-  scrollLeft: number;
-  scrollTop: number;
+  viewportX: number;
+  viewportY: number;
   hasMoved: boolean;
 };
 
@@ -98,17 +101,25 @@ function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [isReviewOpen, setIsReviewOpen] = useState(false);
+  const [isReviewLoading, setIsReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewFindings, setReviewFindings] = useState<ReviewFinding[]>([]);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [suppressedCanvasClick, setSuppressedCanvasClick] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [viewport, setViewport] = useState({ x: 0, y: 0 });
   const dragStateRef = useRef<DragState | null>(null);
   const panStateRef = useRef<PanState | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const scheduleRequestIdRef = useRef(0);
   const accelerateAbortRef = useRef<AbortController | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
+  const reviewAbortRef = useRef<AbortController | null>(null);
   const zoomRef = useRef(1);
+  const viewportRefState = useRef({ x: 0, y: 0 });
+  const shouldAutoCenterRef = useRef(true);
 
   const selectedNode = getNodeById(nodes, selectedNodeId);
   const totalCost = formatMetric(getTotalCost(nodes, edges));
@@ -124,6 +135,7 @@ function App() {
       id: node.id,
       title: node.title,
       content: node.content,
+      results: node.results,
       cost: node.cost,
       duration: node.duration,
       workHoursPerWeek: node.workHoursPerWeek,
@@ -164,6 +176,10 @@ function App() {
   }, [zoom]);
 
   useEffect(() => {
+    viewportRefState.current = viewport;
+  }, [viewport]);
+
+  useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
       const dragState = dragStateRef.current;
       if (dragState && dragState.pointerId === event.pointerId) {
@@ -181,17 +197,13 @@ function App() {
                   ...node,
                   x: Math.max(
                     24,
-                    (event.clientX -
-                      dragState.canvasLeft +
-                      dragState.scrollLeft) /
+                    (event.clientX - dragState.viewportLeft - dragState.viewportX) /
                       dragState.zoom -
                       dragState.offsetX,
                   ),
                   y: Math.max(
                     24,
-                    (event.clientY -
-                      dragState.canvasTop +
-                      dragState.scrollTop) /
+                    (event.clientY - dragState.viewportTop - dragState.viewportY) /
                       dragState.zoom -
                       dragState.offsetY,
                   ),
@@ -203,15 +215,16 @@ function App() {
       }
 
       const panState = panStateRef.current;
-      const scrollElement = scrollRef.current;
-      if (panState && scrollElement && panState.pointerId === event.pointerId) {
+      if (panState && panState.pointerId === event.pointerId) {
         const deltaX = event.clientX - panState.startX;
         const deltaY = event.clientY - panState.startY;
         if (!panState.hasMoved) {
           panState.hasMoved = Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD_PX;
         }
-        scrollElement.scrollLeft = panState.scrollLeft - deltaX;
-        scrollElement.scrollTop = panState.scrollTop - deltaY;
+        setViewport({
+          x: panState.viewportX + deltaX,
+          y: panState.viewportY + deltaY,
+        });
       }
     };
 
@@ -272,9 +285,38 @@ function App() {
     return () => window.clearTimeout(timeoutId);
   }, [highlightedNodeId]);
 
+  useLayoutEffect(() => {
+    if (!shouldAutoCenterRef.current) {
+      return;
+    }
+
+    const viewportElement = viewportRef.current;
+    if (!viewportElement || nodes.length === 0) {
+      return;
+    }
+
+    const minX = Math.min(...nodes.map((node) => node.x));
+    const maxX = Math.max(...nodes.map((node) => node.x));
+    const minY = Math.min(...nodes.map((node) => node.y));
+    const maxY = Math.max(...nodes.map((node) => node.y));
+
+    const centerX = (minX + maxX + 256) / 2;
+    const centerY = (minY + maxY + 148) / 2;
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setViewport({
+          x: viewportElement.clientWidth / 2 - centerX * zoomRef.current,
+          y: viewportElement.clientHeight / 2 - centerY * zoomRef.current,
+        });
+        shouldAutoCenterRef.current = false;
+      });
+    });
+  }, [nodes]);
+
   useEffect(() => {
-    const scrollElement = scrollRef.current;
-    if (!scrollElement) {
+    const viewportElement = viewportRef.current;
+    if (!viewportElement) {
       return;
     }
 
@@ -284,29 +326,27 @@ function App() {
       }
 
       event.preventDefault();
-      const bounds = scrollElement.getBoundingClientRect();
+      const bounds = viewportElement.getBoundingClientRect();
       const pointerX = event.clientX - bounds.left;
       const pointerY = event.clientY - bounds.top;
+      const currentZoom = zoomRef.current;
+      const currentViewport = viewportRefState.current;
+      const worldX = (pointerX - currentViewport.x) / currentZoom;
+      const worldY = (pointerY - currentViewport.y) / currentZoom;
+      const nextZoom = Math.min(
+        MAX_ZOOM,
+        Math.max(MIN_ZOOM, currentZoom * Math.exp(-event.deltaY * 0.005)),
+      );
 
-      setZoom((current) => {
-        const nextZoom = Math.min(
-          MAX_ZOOM,
-          Math.max(MIN_ZOOM, current * Math.exp(-event.deltaY * 0.0015)),
-        );
-        const contentX = (pointerX + scrollElement.scrollLeft) / current;
-        const contentY = (pointerY + scrollElement.scrollTop) / current;
-
-        requestAnimationFrame(() => {
-          scrollElement.scrollLeft = contentX * nextZoom - pointerX;
-          scrollElement.scrollTop = contentY * nextZoom - pointerY;
-        });
-
-        return nextZoom;
+      setZoom(nextZoom);
+      setViewport({
+        x: pointerX - worldX * nextZoom,
+        y: pointerY - worldY * nextZoom,
       });
     };
 
-    scrollElement.addEventListener('wheel', handleWheel, { passive: false });
-    return () => scrollElement.removeEventListener('wheel', handleWheel);
+    viewportElement.addEventListener('wheel', handleWheel, { passive: false });
+    return () => viewportElement.removeEventListener('wheel', handleWheel);
   }, []);
 
   const openCreateEditor = () => {
@@ -399,6 +439,7 @@ function App() {
   const handleSaveNode = (values: {
     title: string;
     content: string;
+    results: string;
     cost: number;
     duration: number;
     workHoursPerWeek: number;
@@ -579,6 +620,7 @@ function App() {
             id: node.id,
             title: node.title,
             content: node.content,
+            results: node.results,
             cost: node.cost,
             duration: node.duration,
             workHoursPerWeek: node.workHoursPerWeek,
@@ -721,17 +763,15 @@ function App() {
 
   const centerNodeInView = (nodeId: string) => {
     const node = getNodeById(nodes, nodeId);
-    const scrollElement = scrollRef.current;
-    if (!node || !scrollElement) {
+    const viewportElement = viewportRef.current;
+    if (!node || !viewportElement) {
       return;
     }
-
-    const targetLeft = Math.max(0, (node.x + 128) * zoom - scrollElement.clientWidth / 2);
-    const targetTop = Math.max(0, (node.y + 74) * zoom - scrollElement.clientHeight / 2);
-    scrollElement.scrollTo({
-      left: targetLeft + WORKSPACE_MARGIN * zoom,
-      top: targetTop + WORKSPACE_MARGIN * zoom,
-      behavior: 'smooth',
+    const centerX = node.x + 128;
+    const centerY = node.y + 74;
+    setViewport({
+      x: viewportElement.clientWidth / 2 - centerX * zoomRef.current,
+      y: viewportElement.clientHeight / 2 - centerY * zoomRef.current,
     });
   };
 
@@ -800,6 +840,53 @@ function App() {
     }
   };
 
+  const requestReview = async () => {
+    reviewAbortRef.current?.abort();
+    const controller = new AbortController();
+    reviewAbortRef.current = controller;
+    setIsReviewLoading(true);
+    setReviewError(null);
+    setIsReviewOpen(true);
+
+    try {
+      const response = await fetch(`${SCHEDULER_API_BASE}/review`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          graph: schedulingInput,
+          schedule,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { detail?: string }
+          | null;
+        throw new Error(payload?.detail ?? 'Review could not analyze the graph.');
+      }
+
+      const payload = (await response.json()) as ReviewResponse;
+      setReviewFindings(payload.findings);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+
+      setReviewFindings([]);
+      setReviewError(
+        error instanceof Error ? error.message : 'Review could not analyze the graph.',
+      );
+    } finally {
+      if (reviewAbortRef.current === controller) {
+        reviewAbortRef.current = null;
+      }
+      setIsReviewLoading(false);
+    }
+  };
+
   const handleImport = (value: string) => {
     const trimmedValue = value.trim();
     if (!trimmedValue) {
@@ -845,8 +932,16 @@ function App() {
     setChatMessages([]);
     setIsChatLoading(false);
     setChatError(null);
+    reviewAbortRef.current?.abort();
+    reviewAbortRef.current = null;
+    setIsReviewOpen(false);
+    setIsReviewLoading(false);
+    setReviewError(null);
+    setReviewFindings([]);
     setHighlightedNodeId(null);
+    shouldAutoCenterRef.current = true;
     setZoom(1);
+    setViewport({ x: 0, y: 0 });
     return null;
   };
 
@@ -859,35 +954,35 @@ function App() {
     }
 
     const node = getNodeById(nodes, id);
-    const canvasElement = canvasRef.current;
-    const scrollElement = scrollRef.current;
-    if (!node || !canvasElement || !scrollElement) {
+    const viewportElement = viewportRef.current;
+    if (!node || !viewportElement) {
       return;
     }
 
-    const canvasBounds = canvasElement.getBoundingClientRect();
+    const viewportBounds = viewportElement.getBoundingClientRect();
 
     dragStateRef.current = {
       nodeId: id,
       pointerId: event.pointerId,
       offsetX:
-        (event.clientX - canvasBounds.left + scrollElement.scrollLeft) / zoom - node.x,
+        (event.clientX - viewportBounds.left - viewportRefState.current.x) / zoom -
+        node.x,
       offsetY:
-        (event.clientY - canvasBounds.top + scrollElement.scrollTop) / zoom - node.y,
-      scrollLeft: scrollElement.scrollLeft,
-      scrollTop: scrollElement.scrollTop,
-      canvasLeft: canvasBounds.left,
-      canvasTop: canvasBounds.top,
+        (event.clientY - viewportBounds.top - viewportRefState.current.y) / zoom -
+        node.y,
+      viewportLeft: viewportBounds.left,
+      viewportTop: viewportBounds.top,
       startClientX: event.clientX,
       startClientY: event.clientY,
       hasMoved: false,
       zoom,
+      viewportX: viewportRefState.current.x,
+      viewportY: viewportRefState.current.y,
     };
   };
 
   const handleStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const scrollElement = scrollRef.current;
-    if (!scrollElement || interactionMode) {
+    if (interactionMode) {
       return;
     }
 
@@ -895,8 +990,8 @@ function App() {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      scrollLeft: scrollElement.scrollLeft,
-      scrollTop: scrollElement.scrollTop,
+      viewportX: viewportRefState.current.x,
+      viewportY: viewportRefState.current.y,
       hasMoved: false,
     };
   };
@@ -914,6 +1009,8 @@ function App() {
         isAccelerating={isAccelerating || Boolean(accelerateProposal || accelerateError || accelerateStopReason)}
         canAccelerate={canAccelerate}
         isChatOpen={isChatOpen}
+        isReviewOpen={isReviewOpen}
+        isReviewing={isReviewLoading}
         onAddPerson={handleAddPerson}
         onUpdatePersonHours={handleUpdatePersonHours}
         onRemovePerson={handleRemovePerson}
@@ -928,6 +1025,18 @@ function App() {
           }
           setChatError(null);
           setIsChatOpen((current) => !current);
+        }}
+        onToggleReview={() => {
+          if (isReviewOpen) {
+            reviewAbortRef.current?.abort();
+            reviewAbortRef.current = null;
+            setIsReviewLoading(false);
+            setReviewError(null);
+            setIsReviewOpen(false);
+            return;
+          }
+
+          void requestReview();
         }}
         onExport={handleExport}
         onImport={handleImport}
@@ -951,8 +1060,9 @@ function App() {
           interactiveNodeIds={interactiveNodeIds}
           activeNodeId={interactionMode?.nodeId ?? null}
           zoom={zoom}
+          viewport={viewport}
           canvasRef={canvasRef}
-          scrollRef={scrollRef}
+          viewportRef={viewportRef}
           onCanvasClick={handleCanvasClick}
           onStagePointerDown={handleStagePointerDown}
           onNodeClick={handleNodeClick}
@@ -994,6 +1104,24 @@ function App() {
             setIsChatOpen(false);
           }}
           onSend={handleSendChat}
+          onReferenceClick={handleChatReferenceClick}
+        />
+        <ReviewPanel
+          isOpen={isReviewOpen}
+          isLoading={isReviewLoading}
+          error={reviewError}
+          findings={reviewFindings}
+          nodes={nodes}
+          onClose={() => {
+            reviewAbortRef.current?.abort();
+            reviewAbortRef.current = null;
+            setIsReviewLoading(false);
+            setReviewError(null);
+            setIsReviewOpen(false);
+          }}
+          onRefresh={() => {
+            void requestReview();
+          }}
           onReferenceClick={handleChatReferenceClick}
         />
         <AcceleratePanel
