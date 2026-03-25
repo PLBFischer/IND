@@ -53,6 +53,10 @@ export function DeepRiskPanel({
               <strong>{analysis.overallRisk}</strong>
             </div>
             <div>
+              <span>Coherence</span>
+              <strong>{analysis.coherenceRisk}</strong>
+            </div>
+            <div>
               <span>Fragility</span>
               <strong>{analysis.fragility}</strong>
             </div>
@@ -92,8 +96,34 @@ export function DeepRiskPanel({
           </section>
 
           <section className="deep-risk-panel__section">
+            <h3>Phase 1 / IND Coherence</h3>
+            {renderList(
+              analysis.coherenceBreakdown,
+              'No Phase 1 or IND coherence concerns were highlighted.',
+            )}
+          </section>
+
+          <section className="deep-risk-panel__section">
             <h3>Fragility Breakdown</h3>
             {renderList(analysis.fragilityBreakdown, 'No fragility concerns were highlighted.')}
+          </section>
+
+          <section className="deep-risk-panel__section">
+            <h3>Key Assumptions Used</h3>
+            {renderList(analysis.keyAssumptionsUsed, 'No explicit assumptions were returned.')}
+          </section>
+
+          <section className="deep-risk-panel__section">
+            <h3>Affected Downstream Claims</h3>
+            {renderList(
+              analysis.affectedDownstreamClaims,
+              'No downstream claims were highlighted.',
+            )}
+          </section>
+
+          <section className="deep-risk-panel__section">
+            <h3>Missing Evidence / Weak Support</h3>
+            {renderList(analysis.missingEvidence, 'No obvious evidence gaps were highlighted.')}
           </section>
 
           <section className="deep-risk-panel__section">
@@ -116,6 +146,14 @@ export function DeepRiskPanel({
           </section>
 
           <section className="deep-risk-panel__section">
+            <h3>What Would Resolve Uncertainty</h3>
+            {renderList(
+              analysis.whatWouldResolveUncertainty,
+              'No specific uncertainty-resolution steps were returned.',
+            )}
+          </section>
+
+          <section className="deep-risk-panel__section">
             <h3>Parallelization Options</h3>
             {analysis.parallelizationOptions.length > 0 ? (
               <div className="deep-risk-panel__cards">
@@ -131,6 +169,20 @@ export function DeepRiskPanel({
             ) : (
               <p className="deep-risk-panel__empty">No responsible parallelization options were identified.</p>
             )}
+          </section>
+
+          <section className="deep-risk-panel__section">
+            <h3>Likely Timeline and Spend Impact</h3>
+            <div className="deep-risk-panel__cards">
+              <article className="deep-risk-panel__card">
+                <strong>Timeline</strong>
+                <p>{analysis.likelyTimelineImpact}</p>
+              </article>
+              <article className="deep-risk-panel__card">
+                <strong>Spend</strong>
+                <p>{analysis.likelySpendImpact}</p>
+              </article>
+            </div>
           </section>
 
           <section className="deep-risk-panel__section">

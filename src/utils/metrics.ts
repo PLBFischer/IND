@@ -1,5 +1,6 @@
 import type { FlowEdge, FlowNode } from '../types/graph';
 import { getEffectiveNodeCost } from './graph';
+import { isActiveNodeStatus } from './graph';
 
 export const formatMetric = (value: number) => {
   if (Number.isNaN(value)) {
@@ -11,7 +12,7 @@ export const formatMetric = (value: number) => {
 
 export const getTotalCost = (nodes: FlowNode[], edges: FlowEdge[]) =>
   nodes.reduce(
-    (sum, node) => sum + (node.completed ? 0 : getEffectiveNodeCost(node, edges)),
+    (sum, node) => sum + (isActiveNodeStatus(node.status) ? getEffectiveNodeCost(node, edges) : 0),
     0,
   );
 
@@ -42,7 +43,7 @@ export const getTotalDuration = (nodes: FlowNode[], edges: FlowEdge[]) => {
   const longestPath = new Map<string, number>();
 
   for (const node of nodes) {
-    const weight = node.completed ? 0 : node.duration;
+    const weight = isActiveNodeStatus(node.status) ? node.duration : 0;
     longestPath.set(node.id, weight);
 
     if ((indegree.get(node.id) ?? 0) === 0) {
@@ -68,7 +69,7 @@ export const getTotalDuration = (nodes: FlowNode[], edges: FlowEdge[]) => {
       }
 
       const candidateDuration =
-        currentDuration + (targetNode.completed ? 0 : targetNode.duration);
+        currentDuration + (isActiveNodeStatus(targetNode.status) ? targetNode.duration : 0);
 
       if (candidateDuration > (longestPath.get(targetId) ?? 0)) {
         longestPath.set(targetId, candidateDuration);

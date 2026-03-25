@@ -1,3 +1,77 @@
+export const NODE_TYPE_OPTIONS = [
+  'in_vitro',
+  'in_vivo',
+  'pk',
+  'tox',
+  'safety_pharmacology',
+  'efficacy',
+  'formulation_cmc',
+  'bioanalysis',
+  'regulatory',
+  'vendor',
+  'analysis',
+  'milestone',
+  'other',
+] as const;
+
+export type NodeType = (typeof NODE_TYPE_OPTIONS)[number];
+
+export const NODE_TYPE_LABELS: Record<NodeType, string> = {
+  in_vitro: 'In vitro',
+  in_vivo: 'In vivo',
+  pk: 'PK',
+  tox: 'Tox',
+  safety_pharmacology: 'Safety pharmacology',
+  efficacy: 'Efficacy',
+  formulation_cmc: 'Formulation / CMC',
+  bioanalysis: 'Bioanalysis',
+  regulatory: 'Regulatory',
+  vendor: 'Vendor',
+  analysis: 'Analysis',
+  milestone: 'Milestone',
+  other: 'Other',
+};
+
+export const NODE_STATUS_OPTIONS = [
+  'planned',
+  'in_progress',
+  'blocked',
+  'completed',
+  'failed',
+  'canceled',
+] as const;
+
+export type NodeStatus = (typeof NODE_STATUS_OPTIONS)[number];
+
+export const NODE_STATUS_LABELS: Record<NodeStatus, string> = {
+  planned: 'Planned',
+  in_progress: 'In progress',
+  blocked: 'Blocked',
+  completed: 'Completed',
+  failed: 'Failed',
+  canceled: 'Canceled',
+};
+
+export const BLOCKER_PRIORITY_OPTIONS = [
+  'critical',
+  'supporting',
+  'exploratory',
+] as const;
+
+export type BlockerPriority = (typeof BLOCKER_PRIORITY_OPTIONS)[number];
+
+export const BLOCKER_PRIORITY_LABELS: Record<BlockerPriority, string> = {
+  critical: 'Critical',
+  supporting: 'Supporting',
+  exploratory: 'Exploratory',
+};
+
+export type ProgramContext = {
+  programTitle?: string;
+  targetPhase1Design: string;
+  targetIndStrategy: string;
+};
+
 export type Personnel = {
   name: string;
   hoursPerWeek: number;
@@ -6,14 +80,24 @@ export type Personnel = {
 export type FlowNode = {
   id: string;
   title: string;
-  content: string;
+  type: NodeType;
+  objective: string;
+  procedureSummary: string;
+  successCriteria: string;
+  decisionSupported: string;
   results: string;
+  operationalNotes: string;
   cost: number;
   duration: number;
   workHoursPerWeek: number;
   parallelizationMultiplier: 1 | 2 | 3 | 4;
   operators: string[];
-  completed: boolean;
+  owner?: string;
+  status: NodeStatus;
+  blockerPriority: BlockerPriority;
+  phase1Relevance: string;
+  indRelevance: string;
+  evidenceRefs: string[];
   x: number;
   y: number;
 };
@@ -23,6 +107,13 @@ export type FlowEdge = {
   source: string;
   target: string;
   parallelized: boolean;
+};
+
+export type GraphPayload = {
+  program: ProgramContext;
+  personnel: Personnel[];
+  nodes: FlowNode[];
+  edges: FlowEdge[];
 };
 
 export type ScheduledNode = {
@@ -67,6 +158,7 @@ export type RiskRecommendation = {
     | 'scientific'
     | 'execution'
     | 'regulatory'
+    | 'coherence'
     | 'fragility'
     | 'cross_cutting';
   expectedEffect: string;
@@ -79,14 +171,18 @@ export type NodeRiskAssessment = {
   scientificRisk: RiskLevel;
   executionRisk: RiskLevel;
   regulatoryRisk: RiskLevel;
+  coherenceRisk: RiskLevel;
   overallRisk: RiskLevel;
   fragility: RiskLevel;
   summary: string;
   scientificDrivers: string[];
   executionDrivers: string[];
   regulatoryDrivers: string[];
+  coherenceDrivers: string[];
   fragilityDrivers: string[];
   recommendations: RiskRecommendation[];
+  keyAssumptions: string[];
+  affectedClaims: string[];
   changeSummary: string;
 };
 
@@ -111,6 +207,7 @@ export type DeepRiskAnalysis = {
   scientificRisk: RiskLevel;
   executionRisk: RiskLevel;
   regulatoryRisk: RiskLevel;
+  coherenceRisk: RiskLevel;
   overallRisk: RiskLevel;
   fragility: RiskLevel;
   executiveSummary: string;
@@ -118,9 +215,16 @@ export type DeepRiskAnalysis = {
   scientificBreakdown: string[];
   executionBreakdown: string[];
   regulatoryBreakdown: string[];
+  coherenceBreakdown: string[];
   fragilityBreakdown: string[];
+  keyAssumptionsUsed: string[];
+  affectedDownstreamClaims: string[];
+  missingEvidence: string[];
   mitigationStrategies: RiskRecommendation[];
   parallelizationOptions: ParallelizationOption[];
+  whatWouldResolveUncertainty: string[];
+  likelyTimelineImpact: string;
+  likelySpendImpact: string;
   scenarios: ScenarioAssessment[];
 };
 
@@ -155,6 +259,12 @@ export type ReviewFinding = {
     | 'redundancy'
     | 'instrumentation_risk'
     | 'dependency_mismatch'
+    | 'phase1_ind_inconsistency'
+    | 'missing_critical_evidence'
+    | 'blocker_priority_mismatch'
+    | 'orphaned_experiment'
+    | 'wasted_spend'
+    | 'stale_results_assumption'
     | 'other';
   summary: string;
   details: string;
@@ -164,6 +274,20 @@ export type ReviewFinding = {
 
 export type ReviewResponse = {
   findings: ReviewFinding[];
+};
+
+export type EvidenceReference = {
+  nodeId: string;
+  field: string;
+  snippet: string;
+  rationale: string;
+};
+
+export type EvidenceQueryResponse = {
+  answer: string;
+  supportingEvidence: EvidenceReference[];
+  missingEvidence: string[];
+  referencedNodeIds: string[];
 };
 
 export type EditorMode = 'closed' | 'create' | 'edit';

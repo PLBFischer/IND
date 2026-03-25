@@ -36,7 +36,7 @@ export function ReviewPanel({
       <div className="review-panel__header">
         <div>
           <span className="toolbar__eyebrow">Review</span>
-          <h2>Contradictions and Redundancies</h2>
+          <h2>Program Coherence Review</h2>
         </div>
         <div className="review-panel__actions">
           <button type="button" className="button" onClick={onRefresh} disabled={isLoading}>
@@ -52,10 +52,12 @@ export function ReviewPanel({
 
       <div className="review-panel__findings">
         {isLoading && findings.length === 0 ? (
-          <p className="review-panel__empty">Reviewing the graph for contradictions and redundancies.</p>
+          <p className="review-panel__empty">
+            Reviewing the graph for contradictions, weak support, and clinic-bound strategy drift.
+          </p>
         ) : null}
         {!isLoading && findings.length === 0 && !error ? (
-          <p className="review-panel__empty">No issues flagged yet.</p>
+          <p className="review-panel__empty">No material issues flagged yet.</p>
         ) : null}
 
         {findings.map((finding) => (

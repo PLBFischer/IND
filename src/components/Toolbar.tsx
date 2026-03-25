@@ -13,6 +13,7 @@ type ToolbarProps = {
   isAccelerating: boolean;
   canAccelerate: boolean;
   isChatOpen: boolean;
+  isEvidenceOpen: boolean;
   isReviewOpen: boolean;
   isReviewing: boolean;
   onAddPerson: (name: string, hoursPerWeek: number) => void;
@@ -22,6 +23,7 @@ type ToolbarProps = {
   onAssign: () => void;
   onAccelerate: () => void;
   onToggleChat: () => void;
+  onToggleEvidence: () => void;
   onToggleReview: () => void;
   onExport: () => void;
   onImport: (value: string) => string | null;
@@ -39,6 +41,7 @@ export function Toolbar({
   isAccelerating,
   canAccelerate,
   isChatOpen,
+  isEvidenceOpen,
   isReviewOpen,
   isReviewing,
   onAddPerson,
@@ -48,6 +51,7 @@ export function Toolbar({
   onAssign,
   onAccelerate,
   onToggleChat,
+  onToggleEvidence,
   onToggleReview,
   onExport,
   onImport,
@@ -56,8 +60,8 @@ export function Toolbar({
   return (
     <header className="toolbar">
       <div className="toolbar__brand">
-        <span className="toolbar__eyebrow">Flow Editor</span>
-        <h1>Pipeline Canvas</h1>
+        <span className="toolbar__eyebrow">Translational Program Cockpit</span>
+        <h1>Fastest Credible Path to Phase 1</h1>
       </div>
       <div className="toolbar__actions">
         <div className="toolbar__metrics" aria-label="Flow metrics">
@@ -108,7 +112,14 @@ export function Toolbar({
           className={isChatOpen ? 'button button--primary' : 'button'}
           onClick={onToggleChat}
         >
-          ChatGPT
+          Chat
+        </button>
+        <button
+          type="button"
+          className={isEvidenceOpen ? 'button button--primary' : 'button'}
+          onClick={onToggleEvidence}
+        >
+          Evidence
         </button>
         <button
           type="button"

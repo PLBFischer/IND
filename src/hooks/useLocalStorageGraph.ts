@@ -1,50 +1,181 @@
 import { useEffect, useState } from 'react';
-import type { FlowEdge, FlowNode, Personnel } from '../types/graph';
-import { CANVAS_HEIGHT, CANVAS_WIDTH, NODE_MIN_HEIGHT, NODE_WIDTH, STORAGE_KEY } from '../utils/constants';
+import type {
+  FlowEdge,
+  FlowNode,
+  Personnel,
+  ProgramContext,
+} from '../types/graph';
+import {
+  BLOCKER_PRIORITY_OPTIONS,
+  NODE_STATUS_OPTIONS,
+  NODE_TYPE_OPTIONS,
+} from '../types/graph';
+import {
+  CANVAS_HEIGHT,
+  CANVAS_WIDTH,
+  NODE_MIN_HEIGHT,
+  NODE_WIDTH,
+  STORAGE_KEY,
+} from '../utils/constants';
+import { isCompletedNodeStatus } from '../utils/graph';
 
 export type GraphState = {
+  program: ProgramContext;
   nodes: FlowNode[];
   edges: FlowEdge[];
   personnel: Personnel[];
   budgetUsd: number | null;
 };
 
+const defaultProgram: ProgramContext = {
+  programTitle: 'CNS Lead Enablement Demo',
+  targetPhase1Design:
+    'Single ascending dose followed by short multiple ascending dose in healthy volunteers, with PK, food-effect, and CSF-enabled biomarker exploration if exposure supports it.',
+  targetIndStrategy:
+    'Build an IND package around oral exposure, CNS penetration, early efficacy plausibility, and a coherent nonclinical safety narrative that supports first-in-human dose escalation.',
+};
+
 const defaultState: GraphState = {
+  program: defaultProgram,
   nodes: [
     {
-      id: 'node_orders',
-      title: 'Orders',
-      content: 'Description: Joins customer orders',
+      id: 'node_pk_brain',
+      title: 'Rodent PK / brain exposure',
+      type: 'pk',
+      objective:
+        'Establish whether the lead reaches brain exposure compatible with the intended oral Phase 1 path.',
+      procedureSummary:
+        'Single-dose mouse PK with plasma and brain sampling across 8 hours using the intended formulation.',
+      successCriteria:
+        'Free brain exposure clears the projected efficacious concentration with usable variability and oral tolerability.',
+      decisionSupported:
+        'Supports brain penetration claim and informs early clinical dose framing.',
       results: '',
-      cost: 2400,
-      duration: 6,
-      workHoursPerWeek: 16,
+      operationalNotes: 'Bioanalysis vendor has a provisional slot hold for next week.',
+      cost: 52000,
+      duration: 4,
+      workHoursPerWeek: 10,
       parallelizationMultiplier: 1,
       operators: ['Avery Chen'],
-      completed: false,
-      x: 180,
-      y: 160,
+      owner: 'Avery Chen',
+      status: 'planned',
+      blockerPriority: 'critical',
+      phase1Relevance:
+        'The target Phase 1 design assumes oral dosing can achieve CNS-relevant exposure margins.',
+      indRelevance:
+        'Feeds the clinical pharmacology narrative and exposure-driven rationale for dose escalation.',
+      evidenceRefs: [],
+      x: 160,
+      y: 140,
     },
     {
-      id: 'node_enrichment',
-      title: 'Enrichment',
-      content: 'Description: Normalizes customer attributes',
+      id: 'node_formulation_ready',
+      title: 'Suspension formulation and analytics',
+      type: 'formulation_cmc',
+      objective:
+        'Lock a formulation and analytical setup that can support tox and first-in-human-enabling studies.',
+      procedureSummary:
+        'Finalize the suspension composition, release test panel, and bridging analytical method package.',
+      successCriteria:
+        'Formulation is reproducible, stable over the study window, and analytically trackable for planned studies.',
+      decisionSupported:
+        'Supports nonclinical execution readiness and reduces reformulation churn before IND-enabling work.',
       results: '',
-      cost: 1800,
-      duration: 4,
-      workHoursPerWeek: 20,
+      operationalNotes: 'Analytical standard availability is the current pacing item.',
+      cost: 36000,
+      duration: 3,
+      workHoursPerWeek: 8,
       parallelizationMultiplier: 1,
-      operators: ['Morgan Patel', 'Sam Rivera'],
-      completed: false,
+      operators: ['Morgan Patel'],
+      owner: 'Morgan Patel',
+      status: 'planned',
+      blockerPriority: 'supporting',
+      phase1Relevance:
+        'Helps ensure formulation used in tox and early clinical supply tells a coherent story.',
+      indRelevance:
+        'Reduces the risk that exposure or safety data must be reinterpreted because of formulation drift.',
+      evidenceRefs: [],
+      x: 180,
+      y: 360,
+    },
+    {
+      id: 'node_efficacy_bridge',
+      title: 'In vivo efficacy bridge',
+      type: 'efficacy',
+      objective:
+        'Confirm that the clinical candidate maintains a credible efficacy signal at exposures achievable in vivo.',
+      procedureSummary:
+        'Run the lead in the disease model with PK sampling aligned to the efficacy readout.',
+      successCriteria:
+        'Observed efficacy is directionally consistent with the program hypothesis and linked to measured exposure.',
+      decisionSupported:
+        'Supports translational plausibility and prioritization of the clinic-bound mechanism story.',
+      results: '',
+      operationalNotes: 'Model availability is stable, but cohort randomization has little slack.',
+      cost: 88000,
+      duration: 6,
+      workHoursPerWeek: 14,
+      parallelizationMultiplier: 1,
+      operators: ['Sam Rivera'],
+      owner: 'Sam Rivera',
+      status: 'planned',
+      blockerPriority: 'critical',
+      phase1Relevance:
+        'Anchors the intended biomarker and exposure interpretation for the early clinical design.',
+      indRelevance:
+        'Provides part of the efficacy plausibility narrative for why the asset is ready for Phase 1.',
+      evidenceRefs: [],
       x: 540,
-      y: 320,
+      y: 140,
+    },
+    {
+      id: 'node_tox_drf',
+      title: '14-day dose-range finding tox',
+      type: 'tox',
+      objective:
+        'Bound the near-term safety envelope and surface liabilities that could undermine the IND story.',
+      procedureSummary:
+        'Conduct a short repeat-dose tox study with safety observations and exposure coverage at planned dose levels.',
+      successCriteria:
+        'Safety findings are interpretable, dose-related where relevant, and leave a credible path into IND-enabling studies.',
+      decisionSupported:
+        'De-risks the safety narrative and informs dose selection for later studies.',
+      results: '',
+      operationalNotes: 'CRO slot is available now but will slip by a month if missed.',
+      cost: 110000,
+      duration: 7,
+      workHoursPerWeek: 12,
+      parallelizationMultiplier: 1,
+      operators: ['Avery Chen', 'Morgan Patel'],
+      owner: 'Avery Chen',
+      status: 'planned',
+      blockerPriority: 'critical',
+      phase1Relevance:
+        'Directly shapes whether the intended escalation strategy remains credible.',
+      indRelevance:
+        'Core support for the safety narrative in the IND package.',
+      evidenceRefs: [],
+      x: 920,
+      y: 220,
     },
   ],
   edges: [
     {
-      id: 'edge_orders_enrichment',
-      source: 'node_orders',
-      target: 'node_enrichment',
+      id: 'edge_pk_efficacy',
+      source: 'node_pk_brain',
+      target: 'node_efficacy_bridge',
+      parallelized: false,
+    },
+    {
+      id: 'edge_pk_tox',
+      source: 'node_pk_brain',
+      target: 'node_tox_drf',
+      parallelized: false,
+    },
+    {
+      id: 'edge_formulation_tox',
+      source: 'node_formulation_ready',
+      target: 'node_tox_drf',
       parallelized: false,
     },
   ],
@@ -53,25 +184,101 @@ const defaultState: GraphState = {
     { name: 'Morgan Patel', hoursPerWeek: 40 },
     { name: 'Sam Rivera', hoursPerWeek: 40 },
   ],
-  budgetUsd: null,
+  budgetUsd: 380000,
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
+
+const isValidNodeType = (value: unknown): value is FlowNode['type'] =>
+  typeof value === 'string' &&
+  (NODE_TYPE_OPTIONS as readonly string[]).includes(value);
+
+const isValidNodeStatus = (value: unknown): value is FlowNode['status'] =>
+  typeof value === 'string' &&
+  (NODE_STATUS_OPTIONS as readonly string[]).includes(value);
+
+const isValidBlockerPriority = (
+  value: unknown,
+): value is FlowNode['blockerPriority'] =>
+  typeof value === 'string' &&
+  (BLOCKER_PRIORITY_OPTIONS as readonly string[]).includes(value);
+
+const normalizeNumber = (value: unknown, fallback: number) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const normalizeEvidenceRefs = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) =>
+      typeof entry === 'string' && entry.trim() ? [entry.trim()] : [],
+    );
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split('\n')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+};
+
+const normalizeProgramContext = (value: unknown): ProgramContext => {
+  if (!isObject(value)) {
+    return defaultProgram;
+  }
+
+  const programTitle =
+    typeof value.programTitle === 'string' && value.programTitle.trim()
+      ? value.programTitle
+      : undefined;
+
+  return {
+    programTitle,
+    targetPhase1Design:
+      typeof value.targetPhase1Design === 'string'
+        ? value.targetPhase1Design
+        : '',
+    targetIndStrategy:
+      typeof value.targetIndStrategy === 'string' ? value.targetIndStrategy : '',
+  };
+};
 
 const normalizeNode = (node: unknown): FlowNode | null => {
   if (!isObject(node) || typeof node.id !== 'string' || typeof node.title !== 'string') {
     return null;
   }
 
+  const legacyProcedureSummary =
+    typeof node.content === 'string' ? node.content : '';
+  const status = isValidNodeStatus(node.status)
+    ? node.status
+    : typeof node.completed === 'boolean'
+      ? node.completed
+        ? 'completed'
+        : 'planned'
+      : 'planned';
+
   return {
     id: node.id,
     title: node.title,
-    content: typeof node.content === 'string' ? node.content : '',
+    type: isValidNodeType(node.type) ? node.type : 'other',
+    objective: typeof node.objective === 'string' ? node.objective : '',
+    procedureSummary:
+      typeof node.procedureSummary === 'string'
+        ? node.procedureSummary
+        : legacyProcedureSummary,
+    successCriteria:
+      typeof node.successCriteria === 'string' ? node.successCriteria : '',
+    decisionSupported:
+      typeof node.decisionSupported === 'string' ? node.decisionSupported : '',
     results: typeof node.results === 'string' ? node.results : '',
-    cost: typeof node.cost === 'number' ? node.cost : 0,
-    duration: typeof node.duration === 'number' ? node.duration : 0,
-    workHoursPerWeek: typeof node.workHoursPerWeek === 'number' ? node.workHoursPerWeek : 40,
+    operationalNotes:
+      typeof node.operationalNotes === 'string' ? node.operationalNotes : '',
+    cost: normalizeNumber(node.cost, 0),
+    duration: normalizeNumber(node.duration, 0),
+    workHoursPerWeek: normalizeNumber(node.workHoursPerWeek, 40),
     parallelizationMultiplier:
       node.parallelizationMultiplier === 2 ||
       node.parallelizationMultiplier === 3 ||
@@ -79,11 +286,21 @@ const normalizeNode = (node: unknown): FlowNode | null => {
         ? node.parallelizationMultiplier
         : 1,
     operators: Array.isArray(node.operators)
-      ? node.operators.filter((operator): operator is string => typeof operator === "string")
+      ? node.operators.filter(
+          (operator): operator is string => typeof operator === 'string',
+        )
       : [],
-    completed: typeof node.completed === 'boolean' ? node.completed : false,
-    x: typeof node.x === 'number' ? node.x : 120,
-    y: typeof node.y === 'number' ? node.y : 120,
+    owner: typeof node.owner === 'string' ? node.owner : undefined,
+    status,
+    blockerPriority: isValidBlockerPriority(node.blockerPriority)
+      ? node.blockerPriority
+      : 'supporting',
+    phase1Relevance:
+      typeof node.phase1Relevance === 'string' ? node.phase1Relevance : '',
+    indRelevance: typeof node.indRelevance === 'string' ? node.indRelevance : '',
+    evidenceRefs: normalizeEvidenceRefs(node.evidenceRefs),
+    x: normalizeNumber(node.x, 120),
+    y: normalizeNumber(node.y, 120),
   };
 };
 
@@ -119,7 +336,7 @@ const normalizePersonnel = (personnel: unknown): Personnel[] => {
       return [
         {
           name: person.name,
-          hoursPerWeek: typeof person.hoursPerWeek === 'number' ? person.hoursPerWeek : 40,
+          hoursPerWeek: normalizeNumber(person.hoursPerWeek, 40),
         },
       ];
     }
@@ -141,6 +358,7 @@ export const normalizeGraphState = (value: unknown): GraphState | null => {
     .filter((edge): edge is FlowEdge => edge !== null);
 
   return {
+    program: normalizeProgramContext(value.program),
     nodes,
     edges,
     personnel: normalizePersonnel(value.personnel),
@@ -179,6 +397,7 @@ export const autoLayoutGraphState = (state: GraphState): GraphState => {
     .filter((node) => (indegree.get(node.id) ?? 0) === 0)
     .map((node) => node.id);
   const depth = new Map<string, number>();
+
   for (const node of orderedNodes) {
     depth.set(node.id, 0);
   }
@@ -228,14 +447,20 @@ export const autoLayoutGraphState = (state: GraphState): GraphState => {
       [...nodes].sort((left, right) => {
         const leftParents = incoming.get(left.id) ?? [];
         const rightParents = incoming.get(right.id) ?? [];
-        const leftParentDepth = leftParents.reduce((sum, parentId) => sum + (depth.get(parentId) ?? 0), 0);
-        const rightParentDepth = rightParents.reduce((sum, parentId) => sum + (depth.get(parentId) ?? 0), 0);
+        const leftParentDepth = leftParents.reduce(
+          (sum, parentId) => sum + (depth.get(parentId) ?? 0),
+          0,
+        );
+        const rightParentDepth = rightParents.reduce(
+          (sum, parentId) => sum + (depth.get(parentId) ?? 0),
+          0,
+        );
         if (leftParentDepth !== rightParentDepth) {
           return leftParentDepth - rightParentDepth;
         }
 
-        if (left.completed !== right.completed) {
-          return left.completed ? -1 : 1;
+        if (isCompletedNodeStatus(left.status) !== isCompletedNodeStatus(right.status)) {
+          return isCompletedNodeStatus(left.status) ? -1 : 1;
         }
 
         return left.title.localeCompare(right.title);
@@ -310,10 +535,20 @@ export const useLocalStorageGraph = () => {
   }, [state]);
 
   return {
+    program: state.program,
     nodes: state.nodes,
     edges: state.edges,
     personnel: state.personnel,
     budgetUsd: state.budgetUsd,
+    setProgram: (
+      updater: ProgramContext | ((current: ProgramContext) => ProgramContext),
+    ) => {
+      setState((current) => ({
+        ...current,
+        program:
+          typeof updater === 'function' ? updater(current.program) : updater,
+      }));
+    },
     setNodes: (updater: FlowNode[] | ((current: FlowNode[]) => FlowNode[])) => {
       setState((current) => ({
         ...current,

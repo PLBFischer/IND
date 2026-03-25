@@ -4,7 +4,9 @@ import { AcceleratePanel } from './components/AcceleratePanel';
 import { Canvas } from './components/Canvas';
 import { ChatPanel } from './components/ChatPanel';
 import { DeepRiskPanel } from './components/DeepRiskPanel';
+import { EvidencePanel } from './components/EvidencePanel';
 import { NodeEditor } from './components/NodeEditor';
+import { ProgramContextPanel } from './components/ProgramContextPanel';
 import { ReviewPanel } from './components/ReviewPanel';
 import { Toolbar } from './components/Toolbar';
 import {
@@ -19,9 +21,13 @@ import type {
   ChatResponse,
   DeepRiskAnalysis,
   DeepRiskResponse,
+  EvidenceQueryResponse,
   EditorMode,
+  FlowEdge,
   FlowNode,
   NodeRiskAssessment,
+  Personnel,
+  ProgramContext,
   RiskScanResponse,
   ReviewFinding,
   ReviewResponse,
@@ -32,6 +38,7 @@ import {
   edgeExists,
   getNodeById,
   hasIncomingParallelizedEdge,
+  isActiveNodeStatus,
 } from './utils/graph';
 import { formatMetric, getTotalCost } from './utils/metrics';
 import { getWarningLevel } from './utils/risk';
@@ -75,12 +82,67 @@ type InteractionMode =
   | { type: 'parallelize'; nodeId: string }
   | null;
 
+const buildScheduleRequestGraph = (
+  personnel: Personnel[],
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+) => ({
+  personnel: personnel.map((person) => ({
+    name: person.name,
+    hoursPerWeek: person.hoursPerWeek,
+  })),
+  nodes: nodes.map((node) => ({
+    id: node.id,
+    title: node.title,
+    type: node.type,
+    objective: node.objective,
+    procedureSummary: node.procedureSummary,
+    successCriteria: node.successCriteria,
+    decisionSupported: node.decisionSupported,
+    results: node.results,
+    operationalNotes: node.operationalNotes,
+    cost: node.cost,
+    duration: node.duration,
+    workHoursPerWeek: node.workHoursPerWeek,
+    parallelizationMultiplier: node.parallelizationMultiplier,
+    operators: node.operators,
+    owner: node.owner,
+    status: node.status,
+    blockerPriority: node.blockerPriority,
+    phase1Relevance: node.phase1Relevance,
+    indRelevance: node.indRelevance,
+    evidenceRefs: node.evidenceRefs,
+  })),
+  edges: edges.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    parallelized: edge.parallelized,
+  })),
+});
+
+const buildAnalysisGraph = (
+  program: ProgramContext,
+  personnel: Personnel[],
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+) => ({
+  program: {
+    programTitle: program.programTitle,
+    targetPhase1Design: program.targetPhase1Design,
+    targetIndStrategy: program.targetIndStrategy,
+  },
+  ...buildScheduleRequestGraph(personnel, nodes, edges),
+});
+
 function App() {
   const {
+    program,
     nodes,
     edges,
     personnel,
     budgetUsd,
+    setProgram,
     setNodes,
     setEdges,
     setPersonnel,
@@ -107,6 +169,13 @@ function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [isEvidenceOpen, setIsEvidenceOpen] = useState(false);
+  const [evidenceQuery, setEvidenceQuery] = useState('');
+  const [evidenceResponse, setEvidenceResponse] = useState<EvidenceQueryResponse | null>(
+    null,
+  );
+  const [isEvidenceLoading, setIsEvidenceLoading] = useState(false);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [isReviewLoading, setIsReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -128,6 +197,7 @@ function App() {
   const scheduleRequestIdRef = useRef(0);
   const accelerateAbortRef = useRef<AbortController | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
+  const evidenceAbortRef = useRef<AbortController | null>(null);
   const reviewAbortRef = useRef<AbortController | null>(null);
   const riskAbortRef = useRef<AbortController | null>(null);
   const deepRiskAbortRef = useRef<AbortController | null>(null);
@@ -141,34 +211,11 @@ function App() {
   const showParallelizationMultiplier = selectedNode
     ? hasIncomingParallelizedEdge(edges, selectedNode.id)
     : false;
-  const schedulingInput = {
-    personnel: personnel.map((person) => ({
-      name: person.name,
-      hoursPerWeek: person.hoursPerWeek,
-    })),
-    nodes: nodes.map((node) => ({
-      id: node.id,
-      title: node.title,
-      content: node.content,
-      results: node.results,
-      cost: node.cost,
-      duration: node.duration,
-      workHoursPerWeek: node.workHoursPerWeek,
-      parallelizationMultiplier: hasIncomingParallelizedEdge(edges, node.id)
-        ? node.parallelizationMultiplier
-        : 1,
-      operators: node.operators,
-      completed: node.completed,
-    })),
-    edges: edges.map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      parallelized: edge.parallelized,
-    })),
-  };
+  const scheduleGraphInput = buildScheduleRequestGraph(personnel, nodes, edges);
+  const analysisGraph = buildAnalysisGraph(program, personnel, nodes, edges);
   const canAccelerate = nodes.length > 0 && budgetUsd !== null;
-  const schedulingSignature = JSON.stringify(schedulingInput);
+  const schedulingSignature = JSON.stringify(scheduleGraphInput);
+  const analysisSignature = JSON.stringify(analysisGraph);
   const plannedDuration = isAssignedView && schedule
     ? `${formatMetric(schedule.makespan)} weeks`
     : 'Not run';
@@ -199,7 +246,7 @@ function App() {
         assessment.nodeId,
         {
           level: warningLevel,
-          label: `Overall risk ${assessment.overallRisk}; fragility ${assessment.fragility}`,
+          label: `Overall risk ${assessment.overallRisk}; coherence ${assessment.coherenceRisk}; fragility ${assessment.fragility}`,
         },
       ]];
     }),
@@ -483,17 +530,7 @@ function App() {
     setEditorMode('edit');
   };
 
-  const handleSaveNode = (values: {
-    title: string;
-    content: string;
-    results: string;
-    cost: number;
-    duration: number;
-    workHoursPerWeek: number;
-    parallelizationMultiplier: 1 | 2 | 3 | 4;
-    operators: string[];
-    completed: boolean;
-  }) => {
+  const handleSaveNode = (values: Omit<FlowNode, 'id' | 'x' | 'y'>) => {
     if (editorMode === 'create') {
       const createdNode: FlowNode = {
         id: createId('node'),
@@ -583,7 +620,7 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(schedulingInput),
+        body: JSON.stringify(scheduleGraphInput),
       });
 
       if (!response.ok) {
@@ -659,30 +696,10 @@ function App() {
         body: JSON.stringify({
           budgetUsd,
           rejectedCandidateIds: nextRejectedProposalIds,
-          personnel: personnel.map((person) => ({
-            name: person.name,
-            hoursPerWeek: person.hoursPerWeek,
-          })),
-          nodes: nextNodes.map((node) => ({
-            id: node.id,
-            title: node.title,
-            content: node.content,
-            results: node.results,
-            cost: node.cost,
-            duration: node.duration,
-            workHoursPerWeek: node.workHoursPerWeek,
-            parallelizationMultiplier: hasIncomingParallelizedEdge(nextEdges, node.id)
-              ? node.parallelizationMultiplier
-              : 1,
-            operators: node.operators,
-            completed: node.completed,
-          })),
-          edges: nextEdges.map((edge) => ({
-            id: edge.id,
-            source: edge.source,
-            target: edge.target,
-            parallelized: edge.parallelized,
-          })),
+          program,
+          personnel,
+          nodes: nextNodes,
+          edges: nextEdges,
         }),
         signal: controller.signal,
       });
@@ -783,11 +800,21 @@ function App() {
     setBudgetUsd(nextBudgetUsd);
   };
 
+  const handleProgramChange = (
+    updates: Partial<typeof program>,
+  ) => {
+    setProgram((current) => ({
+      ...current,
+      ...updates,
+    }));
+  };
+
   const handleExport = () => {
     const payload = {
       storageKey: STORAGE_KEY,
       exportedAt: new Date().toISOString(),
       graph: {
+        program,
         nodes,
         edges,
         personnel,
@@ -856,7 +883,7 @@ function App() {
         },
         body: JSON.stringify({
           messages: nextMessages,
-          graph: schedulingInput,
+          graph: analysisGraph,
           schedule,
         }),
         signal: controller.signal,
@@ -866,7 +893,7 @@ function App() {
         const payload = (await response.json().catch(() => null)) as
           | { detail?: string }
           | null;
-        throw new Error(payload?.detail ?? 'ChatGPT could not answer the question.');
+        throw new Error(payload?.detail ?? 'Grounded chat could not answer the question.');
       }
 
       const payload = (await response.json()) as ChatResponse;
@@ -877,13 +904,69 @@ function App() {
       }
 
       setChatError(
-        error instanceof Error ? error.message : 'ChatGPT could not answer the question.',
+        error instanceof Error ? error.message : 'Grounded chat could not answer the question.',
       );
     } finally {
       if (chatAbortRef.current === controller) {
         chatAbortRef.current = null;
       }
       setIsChatLoading(false);
+    }
+  };
+
+  const requestEvidenceQuery = async () => {
+    const nextQuery = evidenceQuery.trim();
+    if (!nextQuery) {
+      setEvidenceError('Enter an evidence question before querying the graph.');
+      setEvidenceResponse(null);
+      setIsEvidenceOpen(true);
+      return;
+    }
+
+    evidenceAbortRef.current?.abort();
+    const controller = new AbortController();
+    evidenceAbortRef.current = controller;
+    setIsEvidenceLoading(true);
+    setEvidenceError(null);
+    setIsEvidenceOpen(true);
+
+    try {
+      const response = await fetch(`${SCHEDULER_API_BASE}/evidence/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: nextQuery,
+          graph: analysisGraph,
+          schedule,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { detail?: string }
+          | null;
+        throw new Error(payload?.detail ?? 'Evidence query could not analyze the graph.');
+      }
+
+      const payload = (await response.json()) as EvidenceQueryResponse;
+      setEvidenceResponse(payload);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+
+      setEvidenceResponse(null);
+      setEvidenceError(
+        error instanceof Error ? error.message : 'Evidence query could not analyze the graph.',
+      );
+    } finally {
+      if (evidenceAbortRef.current === controller) {
+        evidenceAbortRef.current = null;
+      }
+      setIsEvidenceLoading(false);
     }
   };
 
@@ -902,7 +985,7 @@ function App() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          graph: schedulingInput,
+          graph: analysisGraph,
           schedule,
         }),
         signal: controller.signal,
@@ -950,7 +1033,7 @@ function App() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          graph: schedulingInput,
+          graph: analysisGraph,
           previousAssessments,
         }),
         signal: controller.signal,
@@ -988,7 +1071,7 @@ function App() {
     }
 
     const node = getNodeById(nodes, selectedNodeId);
-    if (!node || node.completed) {
+    if (!node || !isActiveNodeStatus(node.status)) {
       return;
     }
 
@@ -1006,7 +1089,7 @@ function App() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          graph: schedulingInput,
+          graph: analysisGraph,
           nodeId: selectedNodeId,
           previousAssessment: selectedNodeRiskAssessment,
         }),
@@ -1050,7 +1133,7 @@ function App() {
     }
 
     void requestRiskScan();
-  }, [schedulingSignature]);
+  }, [analysisSignature]);
 
   const handleImport = (value: string) => {
     const trimmedValue = value.trim();
@@ -1097,6 +1180,13 @@ function App() {
     setChatMessages([]);
     setIsChatLoading(false);
     setChatError(null);
+    evidenceAbortRef.current?.abort();
+    evidenceAbortRef.current = null;
+    setIsEvidenceOpen(false);
+    setEvidenceQuery('');
+    setEvidenceResponse(null);
+    setIsEvidenceLoading(false);
+    setEvidenceError(null);
     reviewAbortRef.current?.abort();
     reviewAbortRef.current = null;
     setIsReviewOpen(false);
@@ -1185,6 +1275,7 @@ function App() {
         isAccelerating={isAccelerating || Boolean(accelerateProposal || accelerateError || accelerateStopReason)}
         canAccelerate={canAccelerate}
         isChatOpen={isChatOpen}
+        isEvidenceOpen={isEvidenceOpen}
         isReviewOpen={isReviewOpen}
         isReviewing={isReviewLoading}
         onAddPerson={handleAddPerson}
@@ -1201,6 +1292,19 @@ function App() {
           }
           setChatError(null);
           setIsChatOpen((current) => !current);
+        }}
+        onToggleEvidence={() => {
+          if (isEvidenceOpen) {
+            evidenceAbortRef.current?.abort();
+            evidenceAbortRef.current = null;
+            setIsEvidenceLoading(false);
+            setEvidenceError(null);
+            setIsEvidenceOpen(false);
+            return;
+          }
+
+          setEvidenceError(null);
+          setIsEvidenceOpen(true);
         }}
         onToggleReview={() => {
           if (isReviewOpen) {
@@ -1227,6 +1331,10 @@ function App() {
         </section>
       ) : null}
       <div className="workspace">
+        <ProgramContextPanel
+          program={program}
+          onChange={handleProgramChange}
+        />
         <Canvas
           nodes={nodes}
           edges={edges}
@@ -1301,6 +1409,26 @@ function App() {
             setIsChatOpen(false);
           }}
           onSend={handleSendChat}
+          onReferenceClick={handleChatReferenceClick}
+        />
+        <EvidencePanel
+          isOpen={isEvidenceOpen}
+          isLoading={isEvidenceLoading}
+          error={evidenceError}
+          query={evidenceQuery}
+          response={evidenceResponse}
+          nodes={nodes}
+          onClose={() => {
+            evidenceAbortRef.current?.abort();
+            evidenceAbortRef.current = null;
+            setIsEvidenceLoading(false);
+            setEvidenceError(null);
+            setIsEvidenceOpen(false);
+          }}
+          onQueryChange={setEvidenceQuery}
+          onSubmit={() => {
+            void requestEvidenceQuery();
+          }}
           onReferenceClick={handleChatReferenceClick}
         />
         <ReviewPanel

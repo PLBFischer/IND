@@ -33,11 +33,11 @@ export function ChatPanel({
   }
 
   return (
-    <aside className="chat-panel" aria-label="ChatGPT panel">
+    <aside className="chat-panel" aria-label="Grounded chat panel">
       <div className="chat-panel__header">
         <div>
-          <span className="toolbar__eyebrow">ChatGPT</span>
-          <h2>Graph Chat</h2>
+          <span className="toolbar__eyebrow">Grounded Chat</span>
+          <h2>Program Q&amp;A</h2>
         </div>
         <button type="button" className="icon-button" onClick={onClose}>
           Close
@@ -47,7 +47,10 @@ export function ChatPanel({
       <div className="chat-panel__messages">
         {messages.length === 0 ? (
           <div className="chat-panel__empty">
-            <p>Ask about completed work, dependencies, critical path, or any specific node.</p>
+            <p>
+              Ask about dependencies, critical path, Phase 1 assumptions, IND story
+              coherence, or any specific node.
+            </p>
           </div>
         ) : null}
 
@@ -57,7 +60,7 @@ export function ChatPanel({
             className={`chat-panel__message chat-panel__message--${message.role}`}
           >
             <span className="chat-panel__role">
-              {message.role === 'user' ? 'You' : 'ChatGPT'}
+              {message.role === 'user' ? 'You' : 'Assistant'}
             </span>
             <p>{message.content}</p>
             {message.role === 'assistant' && message.referencedNodeIds.length > 0 ? (
@@ -80,7 +83,7 @@ export function ChatPanel({
 
         {isLoading ? (
           <div className="chat-panel__message chat-panel__message--assistant">
-            <span className="chat-panel__role">ChatGPT</span>
+            <span className="chat-panel__role">Assistant</span>
             <p>Thinking…</p>
           </div>
         ) : null}
@@ -104,7 +107,7 @@ export function ChatPanel({
         <textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Ask about the graph"
+          placeholder="Ask about the graph and current clinic-bound story"
           rows={5}
           spellCheck={false}
           onKeyDown={(event) => {

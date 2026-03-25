@@ -12,9 +12,9 @@ export const compareRiskLevels = (left: RiskLevel, right: RiskLevel) =>
   RISK_RANK[left] - RISK_RANK[right];
 
 export const getDominantRiskLevel = (assessment: NodeRiskAssessment) =>
-  compareRiskLevels(assessment.overallRisk, assessment.fragility) >= 0
-    ? assessment.overallRisk
-    : assessment.fragility;
+  [assessment.overallRisk, assessment.fragility, assessment.coherenceRisk].sort(
+    (left, right) => compareRiskLevels(right, left),
+  )[0];
 
 export const getWarningLevel = (
   assessment: NodeRiskAssessment | null,

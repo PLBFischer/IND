@@ -1,6 +1,27 @@
-# Minimal Flowchart Editor
+# Translational Program Cockpit
 
-A minimal, monochrome flowchart editor built with React, TypeScript, and Vite. The app focuses on a restrained enterprise-style UI: compact nodes, subtle grid canvas, hidden-on-idle editor panel, and explicit directed connection flow.
+A graph-based planning and analysis platform for preclinical-to-Phase-1 program design.
+
+The app combines:
+
+- deterministic scheduling with personnel allocation and edge-level dependency parallelization
+- controlled acceleration proposals that stay human-in-the-loop
+- grounded AI review, chat, evidence query, and risk reasoning
+- explicit focus on time, spend, fragility, and Phase 1 / IND coherence
+
+The product is decision support, not autonomous scientific planning. The graph remains human-edited. Deterministic calculations stay deterministic. Model-backed features are schema-constrained and graph-grounded.
+
+## Core Demo Features
+
+- Graph authoring and editing for translational program work packages
+- Program-level context for target Phase 1 design and target IND strategy
+- Rich experiment nodes covering execution, scientific intent, and clinic-bound relevance
+- Derived schedule from FastAPI + OR-Tools CP-SAT
+- Controlled acceleration proposals over legal edge-parallelization candidates only
+- Graph-wide review for contradictions, weak support, wasted spend, and strategy drift
+- Graph-wide risk scoring with scientific, execution, regulatory, coherence, and fragility dimensions
+- Deep node reasoning with inspectable assumptions, affected claims, missing evidence, and mitigation options
+- Evidence query panel for graph-grounded support and gap analysis
 
 ## Setup
 
@@ -10,44 +31,68 @@ python3 -m venv .venv
 .venv/bin/pip install -r backend/requirements.txt
 ```
 
-## Run
+If you want model-backed features, set `OPENAI_API_KEY` before starting the backend.
+
+## Run Locally
+
+Backend:
 
 ```bash
 npm run dev:server
+```
+
+Frontend:
+
+```bash
 npm run dev
 ```
 
-To create a production build:
+Frontend defaults to `http://127.0.0.1:5173` and proxies `/api` to the backend at `http://127.0.0.1:8000`.
+
+Production build:
 
 ```bash
 npm run build
 ```
 
-## Architecture Overview
+Tests:
 
-- `src/App.tsx`: top-level state orchestration for nodes, edges, selection, connection mode, dragging, and editor visibility
-- `backend/app.py`: FastAPI scheduling service backed by OR-Tools CP-SAT
-- `src/components/Canvas.tsx`: scrollable canvas shell, empty state, node and edge composition
-- `src/components/FlowNode.tsx`: compact draggable node card
-- `src/components/EdgeLayer.tsx`: SVG-based directed edges with arrow markers
-- `src/components/NodeEditor.tsx`: shared create/edit side panel with save, delete, and connect actions
-- `src/hooks/useLocalStorageGraph.ts`: local graph persistence in `localStorage`
-- `src/types/graph.ts`: explicit TypeScript types for nodes, edges, and editor mode
+```bash
+npm run test
+```
 
-## Interaction Notes
+## Demo Payload
 
-- Click `Add Node` to open the editor and create a new node
-- Click any existing node to edit its title and content
-- Drag nodes directly on the canvas to reposition them
-- Click `Connect` in the editor to enter connection mode, then click another node to create a directed edge
-- Click `Assign` in the top bar to compute the best overall schedule and display derived personnel assignments on nodes
-- Press `Escape` to close the editor or cancel connection mode
-- Clicking empty canvas clears selection and hides the editor
+Import [`example_translational_program_graph.json`](/Users/paolofischer/Desktop/work/test/example_translational_program_graph.json) to load a compact translational-program example with:
 
-## Notes
+- program-level Phase 1 and IND context
+- richer node schema fields
+- evidence references
+- a mix of completed, in-progress, planned, and blocked work
 
-- Node and edge state persist in `localStorage`
-- Duplicate edges are prevented
-- Self-connections are intentionally blocked
-- The scheduler minimizes overall makespan while respecting graph dependencies and operator capacity
-- Nodes with no eligible operators are treated as external/no-personnel work and can still be scheduled
+The example is demo-oriented and plausible, but it is not a real regulatory package.
+
+## Architecture Notes
+
+- [`backend/app.py`](/Users/paolofischer/Desktop/work/test/backend/app.py)
+  FastAPI app with OR-Tools scheduling plus schema-constrained OpenAI endpoints for chat, review, risk, deep reasoning, evidence query, and controlled acceleration.
+- [`src/App.tsx`](/Users/paolofischer/Desktop/work/test/src/App.tsx)
+  Top-level orchestration for graph state, derived schedule, API requests, and workspace panels.
+- [`src/hooks/useLocalStorageGraph.ts`](/Users/paolofischer/Desktop/work/test/src/hooks/useLocalStorageGraph.ts)
+  Backward-compatible localStorage/import normalization boundary for old and new graph payloads.
+- [`src/types/graph.ts`](/Users/paolofischer/Desktop/work/test/src/types/graph.ts)
+  Shared frontend graph, review, risk, and evidence types.
+
+## Compatibility Notes
+
+- Older graph payloads still load through normalization.
+- Legacy `content` maps into canonical `procedureSummary`.
+- Legacy `completed` maps into canonical `status`.
+- Import/export now persists the program context alongside nodes, edges, personnel, and budget.
+
+## Deliberate Non-Changes
+
+- Scheduling semantics are still handled by the existing CP-SAT engine.
+- Parallelization is still edge-level, not node-level.
+- The model cannot directly edit the graph.
+- Acceleration remains accept/reject/stop with human control over every proposed change.

@@ -1,0 +1,196 @@
+{
+  "storageKey": "minimal-flowchart-editor-state",
+  "exportedAt": "2026-03-25T15:30:00Z",
+  "graph": {
+    "program": {
+      "programTitle": "CNS Lead 11h Demo",
+      "targetPhase1Design": "Single ascending dose followed by a short multiple ascending dose in healthy volunteers, with PK-rich sampling and optional CSF biomarker exploration if exposure supports it.",
+      "targetIndStrategy": "Tell a coherent IND story around oral exposure, CNS penetration, early efficacy plausibility, formulation continuity, and a defensible nonclinical safety package."
+    },
+    "budgetUsd": 850000,
+    "personnel": [
+      {
+        "name": "Avery Chen",
+        "hoursPerWeek": 40
+      },
+      {
+        "name": "Morgan Patel",
+        "hoursPerWeek": 40
+      },
+      {
+        "name": "Sam Rivera",
+        "hoursPerWeek": 35
+      },
+      {
+        "name": "Grace Liu",
+        "hoursPerWeek": 35
+      }
+    ],
+    "nodes": [
+      {
+        "id": "demo_pk_brain",
+        "title": "Mouse PK / brain exposure bridge",
+        "type": "pk",
+        "objective": "Confirm that oral dosing reaches free brain exposure compatible with the intended Phase 1 path.",
+        "procedureSummary": "Single-dose mouse PK with plasma and brain sampling across 8 hours using the intended suspension formulation.",
+        "successCriteria": "Free brain exposure clears the projected efficacy threshold with interpretable variability.",
+        "decisionSupported": "Supports brain penetration claim and early dose framing.",
+        "results": "Observed free brain exposure exceeded the projected efficacy threshold for approximately 3 hours after oral dosing. Variability was acceptable, but exposure dropped quickly at the lowest dose level.",
+        "operationalNotes": "Bioanalysis run completed on time; repeat matrix standardization is not required.",
+        "cost": 62000,
+        "duration": 4,
+        "workHoursPerWeek": 10,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Avery Chen"
+        ],
+        "owner": "Avery Chen",
+        "status": "completed",
+        "blockerPriority": "critical",
+        "phase1Relevance": "Supports the oral SAD design and whether CSF biomarker sampling is worth carrying into the protocol.",
+        "indRelevance": "Provides the core exposure bridge for the clinical pharmacology narrative.",
+        "evidenceRefs": [
+          "PK memo PK-11h-001",
+          "LC-MS run 2026-03-10"
+        ],
+        "x": 140,
+        "y": 160
+      },
+      {
+        "id": "demo_formulation",
+        "title": "Suspension formulation and analytical bridge",
+        "type": "formulation_cmc",
+        "objective": "Lock the nonclinical formulation and assay package that will carry through tox and IND-enabling work.",
+        "procedureSummary": "Finalize the suspension composition, release tests, and analytical transfer notes for tox and exposure studies.",
+        "successCriteria": "Formulation is reproducible, analytically trackable, and stable over the planned study windows.",
+        "decisionSupported": "Supports formulation continuity across the nonclinical package.",
+        "results": "Current suspension is stable over 48 hours with acceptable assayability, but viscosity increases above the top dose target.",
+        "operationalNotes": "Analytical standard reorder is pending but not yet blocking.",
+        "cost": 48000,
+        "duration": 3,
+        "workHoursPerWeek": 8,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Morgan Patel"
+        ],
+        "owner": "Morgan Patel",
+        "status": "in_progress",
+        "blockerPriority": "supporting",
+        "phase1Relevance": "Helps keep the tox and early clinical formulation story aligned.",
+        "indRelevance": "Reduces the risk that exposure or safety data need reinterpretation because of formulation drift.",
+        "evidenceRefs": [
+          "Formulation bridge memo CMC-004"
+        ],
+        "x": 140,
+        "y": 400
+      },
+      {
+        "id": "demo_efficacy",
+        "title": "In vivo efficacy bridge",
+        "type": "efficacy",
+        "objective": "Confirm that the clinic-bound candidate still shows a credible efficacy signal at achievable exposure.",
+        "procedureSummary": "Run the lead in the mouse neuroinflammation model with matched PK sampling at the efficacy readout time point.",
+        "successCriteria": "Directionally positive efficacy tied to measured exposure without forcing implausible dose escalation.",
+        "decisionSupported": "Supports translational plausibility for the clinic-bound mechanism story.",
+        "results": "Interim cohort shows biomarker movement in the expected direction, but exposure-response separation is still shallow.",
+        "operationalNotes": "Model slot is reserved; cohort randomization has little slack if formulation changes again.",
+        "cost": 145000,
+        "duration": 7,
+        "workHoursPerWeek": 16,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Sam Rivera"
+        ],
+        "owner": "Sam Rivera",
+        "status": "in_progress",
+        "blockerPriority": "critical",
+        "phase1Relevance": "Helps justify the biomarker readout strategy and exposure assumptions in Phase 1.",
+        "indRelevance": "Supports the efficacy plausibility section of the IND narrative.",
+        "evidenceRefs": [
+          "Interim efficacy deck EFF-003"
+        ],
+        "x": 540,
+        "y": 180
+      },
+      {
+        "id": "demo_drf_tox",
+        "title": "14-day dose-range finding tox",
+        "type": "tox",
+        "objective": "Bound the near-term safety envelope before committing to the IND-enabling path.",
+        "procedureSummary": "Short repeat-dose tox study with safety observations, clinical chemistry, and exposure coverage at the intended top dose range.",
+        "successCriteria": "Findings remain interpretable and leave a credible margin-setting path into IND-enabling studies.",
+        "decisionSupported": "Informs dose selection and de-risks the IND safety narrative.",
+        "results": "",
+        "operationalNotes": "CRO slot is available now but will slip by four weeks if missed.",
+        "cost": 210000,
+        "duration": 8,
+        "workHoursPerWeek": 12,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Grace Liu",
+          "Morgan Patel"
+        ],
+        "owner": "Grace Liu",
+        "status": "planned",
+        "blockerPriority": "critical",
+        "phase1Relevance": "Directly shapes whether the intended escalation strategy remains credible.",
+        "indRelevance": "Core support for the safety narrative in the IND package.",
+        "evidenceRefs": [],
+        "x": 980,
+        "y": 220
+      },
+      {
+        "id": "demo_safety_pharm",
+        "title": "Core safety pharmacology gap check",
+        "type": "safety_pharmacology",
+        "objective": "Resolve whether the current graph still supports the planned CNS-focused Phase 1 package without a late safety surprise.",
+        "procedureSummary": "Scope the minimum follow-up package for CNS, respiratory, and cardiovascular risk based on current findings and open questions.",
+        "successCriteria": "Required safety pharmacology work is clearly defined and sequenced without contradicting the current IND story.",
+        "decisionSupported": "Clarifies what additional package is needed before locking the IND sequence.",
+        "results": "",
+        "operationalNotes": "Awaiting tox protocol finalization before the final vendor quote can be issued.",
+        "cost": 90000,
+        "duration": 5,
+        "workHoursPerWeek": 9,
+        "parallelizationMultiplier": 1,
+        "operators": [
+          "Grace Liu"
+        ],
+        "owner": "Grace Liu",
+        "status": "blocked",
+        "blockerPriority": "supporting",
+        "phase1Relevance": "Necessary if the planned escalation and monitoring assumptions are to remain credible.",
+        "indRelevance": "Prevents a weak or internally inconsistent safety package heading into the IND story.",
+        "evidenceRefs": [],
+        "x": 980,
+        "y": 500
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge_demo_pk_efficacy",
+        "source": "demo_pk_brain",
+        "target": "demo_efficacy",
+        "parallelized": false
+      },
+      {
+        "id": "edge_demo_pk_tox",
+        "source": "demo_pk_brain",
+        "target": "demo_drf_tox",
+        "parallelized": false
+      },
+      {
+        "id": "edge_demo_formulation_tox",
+        "source": "demo_formulation",
+        "target": "demo_drf_tox",
+        "parallelized": false
+      },
+      {
+        "id": "edge_demo_tox_safety",
+        "source": "demo_drf_tox",
+        "target": "demo_safety_pharm",
+        "parallelized": false
+      }
+    ]
+  }
+}

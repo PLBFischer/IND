@@ -1,9 +1,14 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { NODE_HEADER_HEIGHT, NODE_MIN_HEIGHT, NODE_WIDTH } from '../utils/constants';
 import {
+  getBlockerPriorityLabel,
   getEffectiveNodeCost,
   getEffectiveNodeWorkHoursPerWeek,
   getEffectiveParallelizationMultiplier,
+  getNodeCardSummary,
+  getNodeStatusLabel,
+  getNodeTypeLabel,
+  isActiveNodeStatus,
 } from '../utils/graph';
 import { formatMetric } from '../utils/metrics';
 import type { FlowEdge, FlowNode as FlowNodeType, ScheduledNode } from '../types/graph';
@@ -41,7 +46,7 @@ export function FlowNode({
     node,
     edges,
   );
-
+  const isActive = isActiveNodeStatus(node.status);
   const className = [
     'flow-node',
     selected ? 'flow-node--selected' : '',
@@ -84,14 +89,21 @@ export function FlowNode({
             </span>
           ) : null}
           {effectiveParallelizationMultiplier > 1 ? (
-            <span className="flow-node__multiplier">
-              {effectiveParallelizationMultiplier}x
-            </span>
+            <span className="flow-node__multiplier">{effectiveParallelizationMultiplier}x</span>
           ) : null}
         </div>
       </div>
       <div className="flow-node__body">
-        <p>{node.content}</p>
+        <div className="flow-node__badges">
+          <span className="flow-node__badge">{getNodeTypeLabel(node.type)}</span>
+          <span className="flow-node__badge flow-node__badge--priority">
+            {getBlockerPriorityLabel(node.blockerPriority)}
+          </span>
+          <span className={`flow-node__badge flow-node__badge--status flow-node__badge--${node.status}`}>
+            {getNodeStatusLabel(node.status)}
+          </span>
+        </div>
+        <p>{getNodeCardSummary(node)}</p>
         {scheduleNode ? (
           <div className="flow-node__operators">
             <span>Assignment</span>
@@ -102,9 +114,7 @@ export function FlowNode({
             </strong>
           </div>
         ) : null}
-        {node.completed ? (
-          <div className="flow-node__status">Completed</div>
-        ) : (
+        {isActive ? (
           <dl className="flow-node__metrics">
             <div>
               <dt>Cost</dt>
@@ -119,6 +129,8 @@ export function FlowNode({
               <dd>{formatMetric(effectiveWorkHoursPerWeek)} hrs/wk</dd>
             </div>
           </dl>
+        ) : (
+          <div className="flow-node__status">{getNodeStatusLabel(node.status)}</div>
         )}
       </div>
     </button>
