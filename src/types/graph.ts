@@ -40,15 +40,18 @@ export type ScheduleResult = {
 
 export type AccelerationProposal = {
   candidateId: string;
+  edgeId: string;
   sourceNodeId: string;
   sourceTitle: string;
   targetNodeId: string;
   targetTitle: string;
-  multiplier: 1;
+  multiplier: 1 | 2 | 3 | 4;
   resultingPlannedCost: number;
   resultingPlannedDuration: number;
   deltaCost: number;
   deltaDuration: number;
+  estimatedSuccessProbability: number;
+  expectedPlannedDuration: number;
   summary: string;
   rationale: string;
   confidence: 'low' | 'medium' | 'high';

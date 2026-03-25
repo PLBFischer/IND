@@ -60,15 +60,18 @@ class ScheduleResponse(BaseModel):
 
 class AccelerationProposal(BaseModel):
     candidateId: str
+    edgeId: str
     sourceNodeId: str
     sourceTitle: str
     targetNodeId: str
     targetTitle: str
-    multiplier: Literal[1]
+    multiplier: Literal[1, 2, 3, 4]
     resultingPlannedCost: float
     resultingPlannedDuration: float
     deltaCost: float
     deltaDuration: float
+    estimatedSuccessProbability: float = Field(ge=0, le=1)
+    expectedPlannedDuration: float
     summary: str
     rationale: str
     confidence: Literal["low", "medium", "high"]
@@ -94,6 +97,7 @@ class ProposalChoice(BaseModel):
     summary: str
     rationale: str
     confidence: Literal["low", "medium", "high"]
+    estimated_success_probability: float = Field(ge=0, le=1)
 
 
 app = FastAPI(title="Pipeline Scheduler")
@@ -352,6 +356,7 @@ def solve_schedule_response(payload: GraphPayload) -> ScheduleResponse:
 def build_candidate_graph(
     payload: AccelerateRequest,
     edge_id: str,
+    multiplier: int,
 ) -> GraphPayload:
     next_nodes = deepcopy(payload.nodes)
     next_edges = deepcopy(payload.edges)
@@ -365,7 +370,7 @@ def build_candidate_graph(
         if edge.id == edge_id:
             for node in next_nodes:
                 if node.id == edge.target:
-                    node.parallelizationMultiplier = 1
+                    node.parallelizationMultiplier = multiplier
                     break
             break
 
@@ -381,16 +386,14 @@ def enumerate_candidates(
     baseline_cost: float,
     baseline_duration: float,
 ) -> list[dict[str, object]]:
-    existing_parallelized_targets = get_parallelized_targets(payload.edges)
     node_map = {node.id: node for node in payload.nodes}
+    incoming_edges_by_target: dict[str, list[EdgePayload]] = {}
+    for edge in payload.edges:
+        incoming_edges_by_target.setdefault(edge.target, []).append(edge)
     candidates: list[dict[str, object]] = []
 
     for edge in payload.edges:
-        if edge.parallelized or edge.id in payload.rejectedCandidateIds:
-            continue
-
-        # Minimal v1: only propose a first parallelization for a successor and fix multiplier at 1x.
-        if edge.target in existing_parallelized_targets:
+        if edge.parallelized:
             continue
 
         source_node = node_map.get(edge.source)
@@ -398,49 +401,82 @@ def enumerate_candidates(
         if not source_node or not target_node:
             continue
 
-        candidate_graph = build_candidate_graph(payload, edge.id)
+        current_multiplier = get_effective_multiplier(target_node, payload.edges)
+        minimum_multiplier = current_multiplier if current_multiplier > 1 else 1
 
-        try:
-            schedule = solve_schedule_response(candidate_graph)
-        except HTTPException:
-            continue
-
-        resulting_cost = get_planned_cost(candidate_graph.nodes, candidate_graph.edges)
-        resulting_duration = schedule.makespan
-        delta_cost = resulting_cost - baseline_cost
-        delta_duration = baseline_duration - resulting_duration
-
-        if payload.budgetUsd is not None and resulting_cost > payload.budgetUsd:
-            continue
-
-        if delta_duration <= 0:
-            continue
-
-        candidates.append(
+        incoming_dependencies = [
             {
-                "candidateId": edge.id,
-                "sourceNodeId": source_node.id,
-                "sourceTitle": source_node.title,
-                "sourceContent": source_node.content,
-                "targetNodeId": target_node.id,
-                "targetTitle": target_node.title,
-                "targetContent": target_node.content,
-                "multiplier": 1,
-                "resultingPlannedCost": resulting_cost,
-                "resultingPlannedDuration": resulting_duration,
-                "deltaCost": delta_cost,
-                "deltaDuration": delta_duration,
+                "edgeId": incoming_edge.id,
+                "sourceNodeId": predecessor.id,
+                "sourceTitle": predecessor.title,
+                "sourceContent": predecessor.content,
+                "alreadyParallelized": incoming_edge.parallelized,
             }
-        )
+            for incoming_edge in incoming_edges_by_target.get(edge.target, [])
+            if (predecessor := node_map.get(incoming_edge.source)) is not None
+        ]
+
+        for multiplier in range(minimum_multiplier, 5):
+            candidate_id = f"{edge.id}::x{multiplier}"
+            if candidate_id in payload.rejectedCandidateIds:
+                continue
+
+            candidate_graph = build_candidate_graph(payload, edge.id, multiplier)
+
+            try:
+                schedule = solve_schedule_response(candidate_graph)
+            except HTTPException:
+                continue
+
+            resulting_cost = get_planned_cost(candidate_graph.nodes, candidate_graph.edges)
+            resulting_duration = schedule.makespan
+            delta_cost = resulting_cost - baseline_cost
+            delta_duration = baseline_duration - resulting_duration
+
+            if payload.budgetUsd is not None and resulting_cost > payload.budgetUsd:
+                continue
+
+            if delta_duration <= 0:
+                continue
+
+            candidates.append(
+                {
+                    "candidateId": candidate_id,
+                    "edgeId": edge.id,
+                    "sourceNodeId": source_node.id,
+                    "sourceTitle": source_node.title,
+                    "sourceContent": source_node.content,
+                    "targetNodeId": target_node.id,
+                    "targetTitle": target_node.title,
+                    "targetContent": target_node.content,
+                    "targetDurationWeeks": target_node.duration,
+                    "targetCostUsd": target_node.cost,
+                    "currentMultiplier": current_multiplier,
+                    "multiplier": multiplier,
+                    "incomingDependencies": incoming_dependencies,
+                    "resultingPlannedCost": resulting_cost,
+                    "resultingPlannedDuration": resulting_duration,
+                    "deltaCost": delta_cost,
+                    "deltaDuration": delta_duration,
+                    "remainingBudget": None
+                    if payload.budgetUsd is None
+                    else payload.budgetUsd - resulting_cost,
+                }
+            )
 
     candidates.sort(
         key=lambda candidate: (
             -float(candidate["deltaDuration"]),
             float(candidate["deltaCost"]),
+            int(candidate["multiplier"]),
             candidate["targetTitle"],
         )
     )
     return candidates
+
+
+def clamp_probability(value: float) -> float:
+    return min(1.0, max(0.0, value))
 
 
 def choose_candidate_with_llm(
@@ -462,12 +498,18 @@ def choose_candidate_with_llm(
         response = client.responses.create(
             model=os.getenv("OPENAI_ACCELERATE_MODEL", "gpt-5.4-2026-03-05"),
             instructions=(
-                "You are an acceleration planning assistant. "
-                "Choose exactly one candidate parallelization to propose next, or stop if none are worthwhile. "
-                "For this v1 system, multiplier is always 1x. "
-                "Prefer the largest reduction in planned duration while staying on budget. "
-                "Break ties by smaller cost increase. "
-                "Use the node descriptions only to write a short, sensible rationale. "
+                "You are an acceleration planning assistant for an R&D program scheduler. "
+                "Choose exactly one candidate edge parallelization and multiplier to propose next, or stop if none are worthwhile. "
+                "Objective: shorten the project's expected completion time while keeping the planned cost within budget. "
+                "Interpret a higher multiplier on the target experiment as running more parallel variants of that experiment. "
+                "Higher multipliers should only be recommended when they materially improve the chance that the early parallelized attempt will still be usable once predecessor outputs are known. "
+                "Use the experiment titles and descriptions to estimate dependency risk and likely success probability. "
+                "Think about whether the successor genuinely depends on precise predecessor outputs, and whether multiple variants are likely to hedge that risk. "
+                "Use this rough expected-duration model when comparing candidates: expected duration is the deterministic resulting planned duration plus (1 - success probability) * target duration weeks. "
+                "Use diminishing returns: if moving from 1x to a higher multiplier only marginally helps, prefer the cheaper option and preserve budget for future acceleration opportunities. "
+                "Prefer candidates with meaningful deterministic duration savings, good expected value, and sensible scientific/operational logic. "
+                "Stop if none of the candidates seem worthwhile after risk adjustment. "
+                "If you choose stop, set estimated_success_probability to 0. "
                 "Do not invent candidates that are not in the list."
             ),
             input=json.dumps(
@@ -476,7 +518,7 @@ def choose_candidate_with_llm(
                     "baseline_planned_cost": baseline_cost,
                     "baseline_planned_duration_weeks": baseline_duration,
                     "rejected_candidate_ids": rejected_candidate_ids,
-                    "candidates": candidates[:8],
+                    "candidates": candidates[:24],
                 }
             ),
             max_output_tokens=500,
@@ -508,6 +550,11 @@ def choose_candidate_with_llm(
                                 "type": "string",
                                 "enum": ["low", "medium", "high"],
                             },
+                            "estimated_success_probability": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                            },
                         },
                         "required": [
                             "type",
@@ -515,6 +562,7 @@ def choose_candidate_with_llm(
                             "summary",
                             "rationale",
                             "confidence",
+                            "estimated_success_probability",
                         ],
                     },
                 },
@@ -560,7 +608,7 @@ def accelerate_propose(payload: AccelerateRequest) -> AccelerateResponse:
     if not candidates:
         return AccelerateResponse(
             proposal=None,
-            stopReason="No budget-feasible 1x parallelization remains that reduces planned duration.",
+            stopReason="No budget-feasible parallelization remains that reduces planned duration.",
             baselinePlannedCost=baseline_cost,
             baselinePlannedDuration=baseline_duration,
             candidateCount=0,
@@ -595,20 +643,33 @@ def accelerate_propose(payload: AccelerateRequest) -> AccelerateResponse:
 
     proposal = AccelerationProposal(
         candidateId=str(candidate["candidateId"]),
+        edgeId=str(candidate["edgeId"]),
         sourceNodeId=str(candidate["sourceNodeId"]),
         sourceTitle=str(candidate["sourceTitle"]),
         targetNodeId=str(candidate["targetNodeId"]),
         targetTitle=str(candidate["targetTitle"]),
-        multiplier=1,
+        multiplier=int(candidate["multiplier"]),
         resultingPlannedCost=float(candidate["resultingPlannedCost"]),
         resultingPlannedDuration=float(candidate["resultingPlannedDuration"]),
         deltaCost=float(candidate["deltaCost"]),
         deltaDuration=float(candidate["deltaDuration"]),
+        estimatedSuccessProbability=clamp_probability(choice.estimated_success_probability),
+        expectedPlannedDuration=float(candidate["resultingPlannedDuration"])
+        + (1 - clamp_probability(choice.estimated_success_probability))
+        * float(candidate["targetDurationWeeks"]),
         summary=choice.summary,
         rationale=choice.rationale,
         confidence=choice.confidence,
         fallbackUsed=False,
     )
+    if proposal.expectedPlannedDuration >= baseline_duration:
+        return AccelerateResponse(
+            proposal=None,
+            stopReason="No parallelization candidate appears worthwhile after risk adjustment.",
+            baselinePlannedCost=baseline_cost,
+            baselinePlannedDuration=baseline_duration,
+            candidateCount=len(candidates),
+        )
     return AccelerateResponse(
         proposal=proposal,
         stopReason=None,

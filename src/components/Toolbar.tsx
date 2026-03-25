@@ -1,4 +1,5 @@
 import type { Personnel } from '../types/graph';
+import { ImportPanel } from './ImportPanel';
 import { PersonnelPanel } from './PersonnelPanel';
 
 type ToolbarProps = {
@@ -18,6 +19,7 @@ type ToolbarProps = {
   onAssign: () => void;
   onAccelerate: () => void;
   onExport: () => void;
+  onImport: (value: string) => string | null;
   onAddNode: () => void;
 };
 
@@ -38,6 +40,7 @@ export function Toolbar({
   onAssign,
   onAccelerate,
   onExport,
+  onImport,
   onAddNode,
 }: ToolbarProps) {
   return (
@@ -90,6 +93,7 @@ export function Toolbar({
         >
           {isAccelerating ? 'Stop' : 'Accelerate'}
         </button>
+        <ImportPanel onApply={onImport} />
         <button type="button" className="button" onClick={onExport}>
           Export
         </button>

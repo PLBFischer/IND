@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type {
+  PointerEvent as ReactPointerEvent,
+  WheelEvent as ReactWheelEvent,
+} from 'react';
 import { AcceleratePanel } from './components/AcceleratePanel';
 import { Canvas } from './components/Canvas';
 import { NodeEditor } from './components/NodeEditor';
 import { Toolbar } from './components/Toolbar';
-import { useLocalStorageGraph } from './hooks/useLocalStorageGraph';
+import {
+  autoLayoutGraphState,
+  normalizeGraphState,
+  useLocalStorageGraph,
+} from './hooks/useLocalStorageGraph';
 import type {
   AccelerateResponse,
   AccelerationProposal,
@@ -33,6 +40,7 @@ type DragState = {
   startClientX: number;
   startClientY: number;
   hasMoved: boolean;
+  zoom: number;
 };
 
 const INITIAL_NODE_POSITION = {
@@ -41,6 +49,8 @@ const INITIAL_NODE_POSITION = {
 };
 
 const DRAG_THRESHOLD_PX = 6;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 2.25;
 const SCHEDULER_API_BASE = import.meta.env.VITE_SCHEDULER_API_URL ?? '/api';
 type InteractionMode =
   | { type: 'connect'; nodeId: string }
@@ -57,6 +67,7 @@ function App() {
     setEdges,
     setPersonnel,
     setBudgetUsd,
+    setGraphState,
   } =
     useLocalStorageGraph();
   const [editorMode, setEditorMode] = useState<EditorMode>('closed');
@@ -74,6 +85,7 @@ function App() {
   const [accelerateStopReason, setAccelerateStopReason] = useState<string | null>(null);
   const [rejectedProposalIds, setRejectedProposalIds] = useState<string[]>([]);
   const [suppressedClickNodeId, setSuppressedClickNodeId] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
   const dragStateRef = useRef<DragState | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -150,16 +162,18 @@ function App() {
                 ...node,
                 x: Math.max(
                   24,
-                  event.clientX -
+                  (event.clientX -
                     dragState.canvasLeft +
-                    dragState.scrollLeft -
+                    dragState.scrollLeft) /
+                    dragState.zoom -
                     dragState.offsetX,
                 ),
                 y: Math.max(
                   24,
-                  event.clientY -
+                  (event.clientY -
                     dragState.canvasTop +
-                    dragState.scrollTop -
+                    dragState.scrollTop) /
+                    dragState.zoom -
                     dragState.offsetY,
                 ),
               }
@@ -541,7 +555,7 @@ function App() {
     }
 
     const nextEdges = edges.map((edge) =>
-      edge.id === accelerateProposal.candidateId
+      edge.id === accelerateProposal.edgeId
         ? {
             ...edge,
             parallelized: true,
@@ -552,7 +566,7 @@ function App() {
       node.id === accelerateProposal.targetNodeId
         ? {
             ...node,
-            parallelizationMultiplier: 1 as const,
+            parallelizationMultiplier: accelerateProposal.multiplier,
           }
         : node,
     );
@@ -612,6 +626,78 @@ function App() {
     window.URL.revokeObjectURL(url);
   };
 
+  const handleCanvasWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!event.ctrlKey) {
+      return;
+    }
+
+    event.preventDefault();
+    const scrollElement = scrollRef.current;
+    if (!scrollElement) {
+      return;
+    }
+
+    const zoomIntensity = 0.0015;
+    const nextZoom = Math.min(
+      MAX_ZOOM,
+      Math.max(MIN_ZOOM, zoom * Math.exp(-event.deltaY * zoomIntensity)),
+    );
+    if (Math.abs(nextZoom - zoom) < 0.001) {
+      return;
+    }
+
+    const bounds = scrollElement.getBoundingClientRect();
+    const pointerX = (event.clientX - bounds.left + scrollElement.scrollLeft) / zoom;
+    const pointerY = (event.clientY - bounds.top + scrollElement.scrollTop) / zoom;
+
+    scrollElement.scrollLeft = pointerX * nextZoom - (event.clientX - bounds.left);
+    scrollElement.scrollTop = pointerY * nextZoom - (event.clientY - bounds.top);
+    setZoom(nextZoom);
+  };
+
+  const handleImport = (value: string) => {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) {
+      return 'Paste a graph JSON payload before applying.';
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmedValue) as unknown;
+    } catch {
+      return 'The pasted text is not valid JSON.';
+    }
+
+    const root = typeof parsed === 'object' && parsed !== null ? parsed : null;
+    const nextState = normalizeGraphState(
+      root && 'graph' in root ? (root as { graph: unknown }).graph : parsed,
+    );
+    if (!nextState) {
+      return 'The JSON does not match the exported graph format.';
+    }
+
+    const layoutedState = autoLayoutGraphState(nextState);
+
+    accelerateAbortRef.current?.abort();
+    accelerateAbortRef.current = null;
+    setGraphState(layoutedState);
+    setInteractionMode(null);
+    setSelectedNodeId(null);
+    setEditorMode('closed');
+    setSchedule(null);
+    setScheduleError(null);
+    setIsAssignedView(false);
+    setIsAssigning(false);
+    setIsAccelerating(false);
+    setAccelerateProposal(null);
+    setAccelerateError(null);
+    setAccelerateStopReason(null);
+    setRejectedProposalIds([]);
+    setSuppressedClickNodeId(null);
+    setZoom(1);
+    return null;
+  };
+
   const handleNodePointerDown = (
     id: string,
     event: ReactPointerEvent<HTMLButtonElement>,
@@ -632,8 +718,10 @@ function App() {
     dragStateRef.current = {
       nodeId: id,
       pointerId: event.pointerId,
-      offsetX: event.clientX - canvasBounds.left + scrollElement.scrollLeft - node.x,
-      offsetY: event.clientY - canvasBounds.top + scrollElement.scrollTop - node.y,
+      offsetX:
+        (event.clientX - canvasBounds.left + scrollElement.scrollLeft) / zoom - node.x,
+      offsetY:
+        (event.clientY - canvasBounds.top + scrollElement.scrollTop) / zoom - node.y,
       scrollLeft: scrollElement.scrollLeft,
       scrollTop: scrollElement.scrollTop,
       canvasLeft: canvasBounds.left,
@@ -641,6 +729,7 @@ function App() {
       startClientX: event.clientX,
       startClientY: event.clientY,
       hasMoved: false,
+      zoom,
     };
   };
 
@@ -663,6 +752,7 @@ function App() {
         onAssign={handleAssign}
         onAccelerate={handleAccelerate}
         onExport={handleExport}
+        onImport={handleImport}
         onAddNode={openCreateEditor}
       />
       {scheduleError || schedule?.diagnostics.length ? (
@@ -681,9 +771,11 @@ function App() {
           selectedNodeId={selectedNodeId}
           interactiveNodeIds={interactiveNodeIds}
           activeNodeId={interactionMode?.nodeId ?? null}
+          zoom={zoom}
           canvasRef={canvasRef}
           scrollRef={scrollRef}
           onCanvasClick={handleCanvasClick}
+          onCanvasWheel={handleCanvasWheel}
           onNodeClick={handleNodeClick}
           onNodePointerDown={handleNodePointerDown}
         />

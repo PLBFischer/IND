@@ -1,4 +1,8 @@
-import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
+import type {
+  PointerEvent as ReactPointerEvent,
+  RefObject,
+  WheelEvent as ReactWheelEvent,
+} from 'react';
 import type {
   FlowEdge,
   FlowNode as FlowNodeType,
@@ -15,9 +19,11 @@ type CanvasProps = {
   selectedNodeId: string | null;
   interactiveNodeIds: string[];
   activeNodeId: string | null;
+  zoom: number;
   canvasRef: RefObject<HTMLDivElement>;
   scrollRef: RefObject<HTMLDivElement>;
   onCanvasClick: () => void;
+  onCanvasWheel: (event: ReactWheelEvent<HTMLDivElement>) => void;
   onNodeClick: (id: string) => void;
   onNodePointerDown: (
     id: string,
@@ -32,19 +38,30 @@ export function Canvas({
   selectedNodeId,
   interactiveNodeIds,
   activeNodeId,
+  zoom,
   canvasRef,
   scrollRef,
   onCanvasClick,
+  onCanvasWheel,
   onNodeClick,
   onNodePointerDown,
 }: CanvasProps) {
   return (
     <main className="canvas-shell">
-      <div ref={scrollRef} className="canvas-scroll">
+      <div ref={scrollRef} className="canvas-scroll" onWheel={onCanvasWheel}>
+        <div
+          className="canvas-stage"
+          style={{ width: CANVAS_WIDTH * zoom, height: CANVAS_HEIGHT * zoom }}
+        >
         <div
           ref={canvasRef}
           className="canvas"
-          style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
+          style={{
+            width: CANVAS_WIDTH,
+            height: CANVAS_HEIGHT,
+            transform: `scale(${zoom})`,
+            transformOrigin: 'top left',
+          }}
           onClick={onCanvasClick}
         >
           <EdgeLayer nodes={nodes} edges={edges} />
@@ -67,6 +84,7 @@ export function Canvas({
               onPointerDown={onNodePointerDown}
             />
           ))}
+        </div>
         </div>
       </div>
     </main>
