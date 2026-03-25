@@ -13,6 +13,7 @@ type FlowNodeProps = {
   edges: FlowEdge[];
   scheduleNode: ScheduledNode | null;
   selected: boolean;
+  highlighted: boolean;
   connectable: boolean;
   connectingFrom: boolean;
   onSelect: (id: string) => void;
@@ -24,6 +25,7 @@ export function FlowNode({
   edges,
   scheduleNode,
   selected,
+  highlighted,
   connectable,
   connectingFrom,
   onSelect,
@@ -39,6 +41,7 @@ export function FlowNode({
   const className = [
     'flow-node',
     selected ? 'flow-node--selected' : '',
+    highlighted ? 'flow-node--highlighted' : '',
     connectable ? 'flow-node--connectable' : '',
     connectingFrom ? 'flow-node--source' : '',
   ]

@@ -100,6 +100,33 @@ class ProposalChoice(BaseModel):
     estimated_success_probability: float = Field(ge=0, le=1)
 
 
+class ChatMessagePayload(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+    referencedNodeIds: list[str] = Field(default_factory=list)
+
+
+class ChatRequest(BaseModel):
+    messages: list[ChatMessagePayload] = Field(default_factory=list)
+    graph: GraphPayload
+    schedule: ScheduleResponse | None = None
+
+
+class ChatResponseMessage(BaseModel):
+    role: Literal["assistant"] = "assistant"
+    content: str
+    referencedNodeIds: list[str] = Field(default_factory=list)
+
+
+class ChatResponse(BaseModel):
+    message: ChatResponseMessage
+
+
+class ChatChoice(BaseModel):
+    answer: str
+    referenced_node_ids: list[str] = Field(default_factory=list)
+
+
 app = FastAPI(title="Pipeline Scheduler")
 app.add_middleware(
     CORSMiddleware,
@@ -479,6 +506,70 @@ def clamp_probability(value: float) -> float:
     return min(1.0, max(0.0, value))
 
 
+def build_chat_graph_context(payload: ChatRequest) -> dict[str, object]:
+    node_map = {node.id: node for node in payload.graph.nodes}
+    children_by_node: dict[str, list[str]] = {node.id: [] for node in payload.graph.nodes}
+    parents_by_node: dict[str, list[str]] = {node.id: [] for node in payload.graph.nodes}
+
+    for edge in payload.graph.edges:
+        if edge.source in node_map and edge.target in node_map:
+            children_by_node[edge.source].append(edge.target)
+            parents_by_node[edge.target].append(edge.source)
+
+    schedule_by_node_id = (
+        {scheduled.nodeId: scheduled for scheduled in payload.schedule.nodes}
+        if payload.schedule
+        else {}
+    )
+
+    return {
+        "personnel": [
+            {
+                "name": person.name,
+                "hours_per_week": person.hoursPerWeek,
+            }
+            for person in payload.graph.personnel
+        ],
+        "nodes": [
+            {
+                "id": node.id,
+                "title": node.title,
+                "content": node.content,
+                "completed": node.completed,
+                "cost_usd": node.cost,
+                "duration_weeks": node.duration,
+                "work_hours_per_week": node.workHoursPerWeek,
+                "effective_multiplier": get_effective_multiplier(node, payload.graph.edges),
+                "eligible_operators": node.operators,
+                "predecessor_node_ids": parents_by_node[node.id],
+                "successor_node_ids": children_by_node[node.id],
+                "schedule": (
+                    {
+                        "assigned_operator": schedule_by_node_id[node.id].assignedOperator,
+                        "uses_personnel": schedule_by_node_id[node.id].usesPersonnel,
+                        "start_week": schedule_by_node_id[node.id].start,
+                        "finish_week": schedule_by_node_id[node.id].finish,
+                    }
+                    if node.id in schedule_by_node_id
+                    else None
+                ),
+            }
+            for node in payload.graph.nodes
+        ],
+        "edges": [
+            {
+                "id": edge.id,
+                "source": edge.source,
+                "target": edge.target,
+                "parallelized": edge.parallelized,
+            }
+            for edge in payload.graph.edges
+        ],
+        "planned_cost_usd": get_planned_cost(payload.graph.nodes, payload.graph.edges),
+        "planned_duration_weeks": payload.schedule.makespan if payload.schedule else None,
+    }
+
+
 def choose_candidate_with_llm(
     baseline_cost: float,
     baseline_duration: float,
@@ -583,6 +674,109 @@ def choose_candidate_with_llm(
     return ProposalChoice.model_validate_json(response.output_text)
 
 
+def answer_chat_with_llm(payload: ChatRequest) -> ChatResponse:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="ChatGPT requires OPENAI_API_KEY to be set on the backend.",
+        )
+
+    client = OpenAI(api_key=api_key)
+    node_ids = {node.id for node in payload.graph.nodes}
+
+    try:
+        response = client.responses.create(
+            model=os.getenv("OPENAI_CHAT_MODEL", "gpt-5.4-2026-03-05"),
+            instructions=(
+                "You are a scientific program planning assistant embedded in a graph-based R&D planning tool. "
+                "Answer the user's question using only the graph data provided in the request. "
+                "The latest graph snapshot in the current request is the source of truth and overrides any earlier conversation content if they conflict. "
+                "If the answer depends on specific experiments or milestones, cite the corresponding node IDs in referenced_node_ids. "
+                "Only include node IDs that actually appear in the graph. "
+                "If the graph does not contain enough information, say so explicitly instead of inventing facts. "
+                "Keep answers concise but useful for a researcher inspecting the plan."
+            ),
+            input=[
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": json.dumps(
+                                {
+                                    "graph_context": build_chat_graph_context(payload),
+                                }
+                            ),
+                        }
+                    ],
+                },
+                *[
+                    {
+                        "role": message.role,
+                        "content": [
+                            {
+                                "type": "input_text"
+                                if message.role == "user"
+                                else "output_text",
+                                "text": message.content,
+                            }
+                        ],
+                    }
+                    for message in payload.messages
+                ],
+            ],
+            max_output_tokens=600,
+            temperature=0.2,
+            store=False,
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "chat_answer",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "answer": {
+                                "type": "string",
+                            },
+                            "referenced_node_ids": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                },
+                            },
+                        },
+                        "required": ["answer", "referenced_node_ids"],
+                    },
+                },
+                "verbosity": "low",
+            },
+        )
+    except AuthenticationError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"ChatGPT could not authenticate with OpenAI: {error}",
+        ) from error
+    except APIError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"ChatGPT failed while calling OpenAI: {error}",
+        ) from error
+
+    choice = ChatChoice.model_validate_json(response.output_text)
+    referenced_node_ids = [
+        node_id for node_id in choice.referenced_node_ids if node_id in node_ids
+    ]
+    return ChatResponse(
+        message=ChatResponseMessage(
+            content=choice.answer,
+            referencedNodeIds=referenced_node_ids,
+        )
+    )
+
+
 @app.get("/api/health")
 def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
@@ -677,3 +871,8 @@ def accelerate_propose(payload: AccelerateRequest) -> AccelerateResponse:
         baselinePlannedDuration=baseline_duration,
         candidateCount=len(candidates),
     )
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+def chat(payload: ChatRequest) -> ChatResponse:
+    return answer_chat_with_llm(payload)

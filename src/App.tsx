@@ -5,6 +5,7 @@ import type {
 } from 'react';
 import { AcceleratePanel } from './components/AcceleratePanel';
 import { Canvas } from './components/Canvas';
+import { ChatPanel } from './components/ChatPanel';
 import { NodeEditor } from './components/NodeEditor';
 import { Toolbar } from './components/Toolbar';
 import {
@@ -15,6 +16,8 @@ import {
 import type {
   AccelerateResponse,
   AccelerationProposal,
+  ChatMessage,
+  ChatResponse,
   EditorMode,
   FlowNode,
   ScheduleResult,
@@ -85,12 +88,18 @@ function App() {
   const [accelerateStopReason, setAccelerateStopReason] = useState<string | null>(null);
   const [rejectedProposalIds, setRejectedProposalIds] = useState<string[]>([]);
   const [suppressedClickNodeId, setSuppressedClickNodeId] = useState<string | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const dragStateRef = useRef<DragState | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const scheduleRequestIdRef = useRef(0);
   const accelerateAbortRef = useRef<AbortController | null>(null);
+  const chatAbortRef = useRef<AbortController | null>(null);
 
   const selectedNode = getNodeById(nodes, selectedNodeId);
   const totalCost = formatMetric(getTotalCost(nodes, edges));
@@ -220,6 +229,18 @@ function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [interactionMode, editorMode]);
+
+  useEffect(() => {
+    if (!highlightedNodeId) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setHighlightedNodeId(null);
+    }, 1800);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [highlightedNodeId]);
 
   const openCreateEditor = () => {
     setInteractionMode(null);
@@ -655,6 +676,87 @@ function App() {
     setZoom(nextZoom);
   };
 
+  const centerNodeInView = (nodeId: string) => {
+    const node = getNodeById(nodes, nodeId);
+    const scrollElement = scrollRef.current;
+    if (!node || !scrollElement) {
+      return;
+    }
+
+    const targetLeft = Math.max(0, (node.x + 128) * zoom - scrollElement.clientWidth / 2);
+    const targetTop = Math.max(0, (node.y + 74) * zoom - scrollElement.clientHeight / 2);
+    scrollElement.scrollTo({
+      left: targetLeft,
+      top: targetTop,
+      behavior: 'smooth',
+    });
+  };
+
+  const handleChatReferenceClick = (nodeId: string) => {
+    setInteractionMode(null);
+    setSelectedNodeId(nodeId);
+    setEditorMode('edit');
+    setHighlightedNodeId(nodeId);
+    centerNodeInView(nodeId);
+  };
+
+  const handleSendChat = async (content: string) => {
+    const nextMessages: ChatMessage[] = [
+      ...chatMessages,
+      {
+        role: 'user',
+        content,
+        referencedNodeIds: [],
+      },
+    ];
+
+    chatAbortRef.current?.abort();
+    const controller = new AbortController();
+    chatAbortRef.current = controller;
+    setChatMessages(nextMessages);
+    setChatError(null);
+    setIsChatLoading(true);
+    setIsChatOpen(true);
+
+    try {
+      const response = await fetch(`${SCHEDULER_API_BASE}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: nextMessages,
+          graph: schedulingInput,
+          schedule,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { detail?: string }
+          | null;
+        throw new Error(payload?.detail ?? 'ChatGPT could not answer the question.');
+      }
+
+      const payload = (await response.json()) as ChatResponse;
+      setChatMessages((current) => [...current, payload.message]);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+
+      setChatError(
+        error instanceof Error ? error.message : 'ChatGPT could not answer the question.',
+      );
+    } finally {
+      if (chatAbortRef.current === controller) {
+        chatAbortRef.current = null;
+      }
+      setIsChatLoading(false);
+    }
+  };
+
   const handleImport = (value: string) => {
     const trimmedValue = value.trim();
     if (!trimmedValue) {
@@ -694,6 +796,13 @@ function App() {
     setAccelerateStopReason(null);
     setRejectedProposalIds([]);
     setSuppressedClickNodeId(null);
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    setIsChatOpen(false);
+    setChatMessages([]);
+    setIsChatLoading(false);
+    setChatError(null);
+    setHighlightedNodeId(null);
     setZoom(1);
     return null;
   };
@@ -745,12 +854,22 @@ function App() {
         isAssignedView={isAssignedView}
         isAccelerating={isAccelerating || Boolean(accelerateProposal || accelerateError || accelerateStopReason)}
         canAccelerate={canAccelerate}
+        isChatOpen={isChatOpen}
         onAddPerson={handleAddPerson}
         onUpdatePersonHours={handleUpdatePersonHours}
         onRemovePerson={handleRemovePerson}
         onBudgetChange={handleBudgetChange}
         onAssign={handleAssign}
         onAccelerate={handleAccelerate}
+        onToggleChat={() => {
+          if (isChatOpen) {
+            chatAbortRef.current?.abort();
+            chatAbortRef.current = null;
+            setIsChatLoading(false);
+          }
+          setChatError(null);
+          setIsChatOpen((current) => !current);
+        }}
         onExport={handleExport}
         onImport={handleImport}
         onAddNode={openCreateEditor}
@@ -769,6 +888,7 @@ function App() {
           edges={edges}
           scheduleByNodeId={scheduleByNodeId}
           selectedNodeId={selectedNodeId}
+          highlightedNodeId={highlightedNodeId}
           interactiveNodeIds={interactiveNodeIds}
           activeNodeId={interactionMode?.nodeId ?? null}
           zoom={zoom}
@@ -800,6 +920,22 @@ function App() {
             }
           }}
           onCancelConnect={() => setInteractionMode(null)}
+        />
+        <ChatPanel
+          isOpen={isChatOpen}
+          isLoading={isChatLoading}
+          error={chatError}
+          messages={chatMessages}
+          nodes={nodes}
+          onClose={() => {
+            chatAbortRef.current?.abort();
+            chatAbortRef.current = null;
+            setIsChatLoading(false);
+            setChatError(null);
+            setIsChatOpen(false);
+          }}
+          onSend={handleSendChat}
+          onReferenceClick={handleChatReferenceClick}
         />
         <AcceleratePanel
           proposal={accelerateProposal}

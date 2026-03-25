@@ -66,4 +66,14 @@ export type AccelerateResponse = {
   candidateCount: number;
 };
 
+export type ChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+  referencedNodeIds: string[];
+};
+
+export type ChatResponse = {
+  message: ChatMessage;
+};
+
 export type EditorMode = 'closed' | 'create' | 'edit';

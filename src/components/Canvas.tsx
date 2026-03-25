@@ -17,6 +17,7 @@ type CanvasProps = {
   edges: FlowEdge[];
   scheduleByNodeId: Record<string, ScheduledNode>;
   selectedNodeId: string | null;
+  highlightedNodeId: string | null;
   interactiveNodeIds: string[];
   activeNodeId: string | null;
   zoom: number;
@@ -36,6 +37,7 @@ export function Canvas({
   edges,
   scheduleByNodeId,
   selectedNodeId,
+  highlightedNodeId,
   interactiveNodeIds,
   activeNodeId,
   zoom,
@@ -78,6 +80,7 @@ export function Canvas({
               edges={edges}
               scheduleNode={scheduleByNodeId[node.id] ?? null}
               selected={selectedNodeId === node.id}
+              highlighted={highlightedNodeId === node.id}
               connectable={interactiveNodeIds.includes(node.id)}
               connectingFrom={activeNodeId === node.id}
               onSelect={onNodeClick}
