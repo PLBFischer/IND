@@ -1,63 +1,71 @@
 # Project Summary
 - Problem definition
-  - Build a restrained, enterprise-style flowchart UI for planning experiments/pipeline steps.
-  - Each node represents an experiment/task with:
-    - title/content
-    - cost
-    - duration
-    - operator effort
-    - eligible operators
-    - completion state
-  - The system must compute a best-overall project schedule and operator allocation subject to dependencies and personnel capacity.
-  - The graph has evolved from a simple sequential pipeline editor into a scheduling/planning tool with:
-    - weekly staffing capacity
-    - edge-level parallelization semantics
-    - multiplier-based parallelized experiment variants
+  - Build an interactive graph-based planning tool for preclinical/clinical R&D programs.
+  - Each node represents an experiment or work package with scientific description, results, cost, duration, operator effort, eligible personnel, and completion state.
+  - The platform must:
+    - compute a schedule and personnel allocation
+    - support selective edge-level parallelization and parallelization multipliers
+    - support AI-assisted acceleration proposals under a budget
+    - support graph-grounded chat and graph review for contradictions/redundancies
+  - The product evolved from a simple flowchart editor into a planning + analysis tool for IND-pathway style programs.
 - Constraints and requirements
-  - Existing app is a Vite + React + TypeScript frontend with `localStorage` persistence.
-  - Visual style must remain restrained, monochrome, and enterprise-like.
-  - Scheduling must be exact enough to support real planning decisions, not just local heuristics.
-  - Current business rules:
-    - time is measured in weeks
-    - each person has `hoursPerWeek`
-    - each node has `workHoursPerWeek`
-    - each experiment is assigned to at most one operator
-    - an operator can work on multiple experiments in parallel as long as weekly capacity is not exceeded
-    - some experiments may intentionally require no internal operator
-    - parallelization is configured at the edge level, not node level
-    - a node can have a multiplier `1x..4x` that only becomes active once the node has at least one incoming parallelized edge
-    - multiplier affects cost and weekly workload, but not duration
-  - Interaction requirements:
-    - clicking a node opens its editor
-    - dragging a node should not open the editor
-    - `Assign` is a toggle between unassigned and assigned view
-    - while assigned view is active, scheduling-relevant changes should trigger automatic recomputation
-    - graph state must be exportable as JSON
+  - Frontend stack: Vite + React + TypeScript.
+  - Persistence: browser `localStorage`.
+  - Backend stack: Python `FastAPI`.
+  - Scheduling engine: `OR-Tools CP-SAT`.
+  - OpenAI integration must use the OpenAI API and the pinned model `gpt-5.4-2026-03-05` by default.
+  - Time unit is weeks, not days.
+  - Personnel have weekly capacity (`hoursPerWeek`).
+  - Nodes have weekly staffing demand (`workHoursPerWeek`) and overall duration in weeks.
+  - A node may have no internal operator assignment requirement.
+  - A node can be assigned to at most one operator, but an operator can support multiple concurrent nodes if weekly hours remain within capacity.
+  - Parallelization is configured on edges, not on nodes.
+  - Multipliers are node-level but only active when the node has at least one incoming parallelized edge.
+  - The UI should stay restrained and high-signal rather than flashy.
+  - Import/export must support realistic graph examples for demos and evaluation.
 - Success criteria
-  - User can manage nodes, edges, personnel, weekly capacities, and eligible operators in the UI.
-  - User can compute and view a derived optimal schedule with operator assignments.
-  - Parallelized edges change the schedule semantics and are visually distinct.
-  - Multiplier is editable only when relevant and visibly shown on nodes when greater than `1x`.
-  - Export produces the current live graph state.
+  - Users can create, edit, import, export, and inspect complex experiment graphs.
+  - The scheduler returns a coherent makespan-minimizing plan with operator assignments and diagnostics.
+  - `Assign` toggles derived schedule visibility rather than mutating core graph data.
+  - `Accelerate` proposes budget-feasible parallelization edits with human accept/reject control.
+  - `ChatGPT` answers graph-aware questions and can highlight referenced nodes.
+  - `Review` flags contradictions, outdated descriptions, redundancies, and instrumentation risks using both descriptions and results.
+  - Interaction quality is acceptable for practical use: node drag, background pan, pinch zoom, import auto-layout, and side panels all work together.
 
 # Final State (Current Best Solution)
 - Description of the current approach
-  - Frontend:
-    - Vite + React + TypeScript
-    - graph state persisted in `localStorage`
-    - assignment view toggled by `Assign`
-    - export button downloads current live graph state as JSON
-  - Backend:
-    - Python `FastAPI`
-    - `OR-Tools CP-SAT` for exact scheduling
-  - Current data model
+  - Frontend
+    - Single-page React app orchestrated from [src/App.tsx](/Users/paolofischer/Desktop/work/test/src/App.tsx).
+    - Persistent graph state via [src/hooks/useLocalStorageGraph.ts](/Users/paolofischer/Desktop/work/test/src/hooks/useLocalStorageGraph.ts).
+    - Main UI capabilities:
+      - node creation/editing via [src/components/NodeEditor.tsx](/Users/paolofischer/Desktop/work/test/src/components/NodeEditor.tsx)
+      - personnel editing via [src/components/PersonnelPanel.tsx](/Users/paolofischer/Desktop/work/test/src/components/PersonnelPanel.tsx)
+      - import/export via [src/components/ImportPanel.tsx](/Users/paolofischer/Desktop/work/test/src/components/Toolbar.tsx)
+      - schedule display via `Assign`
+      - AI acceleration proposal panel via [src/components/AcceleratePanel.tsx](/Users/paolofischer/Desktop/work/test/src/components/AcceleratePanel.tsx)
+      - graph-grounded chat via [src/components/ChatPanel.tsx](/Users/paolofischer/Desktop/work/test/src/components/ChatPanel.tsx)
+      - structured graph review via [src/components/ReviewPanel.tsx](/Users/paolofischer/Desktop/work/test/src/components/ReviewPanel.tsx)
+      - canvas pan/zoom/drag/highlight behavior via [src/components/Canvas.tsx](/Users/paolofischer/Desktop/work/test/src/components/Canvas.tsx)
+  - Backend
+    - FastAPI service in [backend/app.py](/Users/paolofischer/Desktop/work/test/backend/app.py).
+    - Core endpoints:
+      - `GET /api/health`
+      - `POST /api/schedule`
+      - `POST /api/accelerate/propose`
+      - `POST /api/chat`
+      - `POST /api/review`
+    - Uses:
+      - `OR-Tools CP-SAT` for deterministic scheduling
+      - OpenAI Responses API for `Accelerate`, `ChatGPT`, and `Review`
+  - Current graph/data model
     - `Personnel`
       - `name`
       - `hoursPerWeek`
     - `FlowNode`
       - `id`
       - `title`
-      - `content`
+      - `content` = Description
+      - `results`
       - `cost`
       - `duration` in weeks
       - `workHoursPerWeek`
@@ -71,625 +79,718 @@
       - `target`
       - `parallelized`
   - Scheduling semantics
+    - Completed nodes are excluded from active scheduling and contribute zero start/finish in derived output.
     - Non-parallelized edge:
       - finish-to-start
       - `start(target) >= finish(source)`
     - Parallelized edge:
       - start-to-start
       - `start(target) >= start(source)`
-    - Operator allocation:
-      - exact one operator if node uses personnel
-      - cumulative capacity by operator in weekly hours
-    - Multiplier:
-      - only effective if node has at least one incoming parallelized edge
-      - scales:
-        - node cost
-        - node workload (`workHoursPerWeek`)
-      - does not scale:
-        - node duration
-  - Current UI behavior
-    - top bar shows:
-      - `Planned Cost`
-      - `Planned Duration`
-      - `Personnel`
-      - `Assign`
-      - `Export`
-      - `Add Node`
-    - nodes show:
-      - title
-      - multiplier badge only if effective multiplier > `1x`
-      - content
-      - assignment only in assigned view
-      - cost/duration/workload
-    - dashed edges indicate parallelized dependencies
-    - `Parallelize` button in node editor enters a mode where user clicks an existing predecessor to toggle edge parallelization
+    - If a node has eligible internal operators, scheduler enforces exactly one assigned operator.
+    - If a node has no eligible internal operators, it is still scheduled and diagnosed as no-personnel/external.
+    - Operator load is modeled with cumulative weekly capacity constraints rather than exclusive single-task occupancy.
+    - Effective multiplier rules:
+      - only active if node has at least one incoming parallelized edge
+      - multiplies `cost`
+      - multiplies `workHoursPerWeek`
+      - does not change `duration`
+  - AI capabilities
+    - `Accelerate`
+      - enumerates legal edge-parallelization + multiplier candidates
+      - filters to budget-feasible candidates that reduce deterministic makespan
+      - sends shortlisted candidates to OpenAI for risk-aware selection
+      - returns one proposal at a time with accept/reject/stop loop
+    - `ChatGPT`
+      - answers using the current graph snapshot plus current schedule when available
+      - graph-derived claims must come from the graph snapshot
+      - model may use general scientific/drug-development knowledge for interpretation/advice
+      - referenced nodes are returned structurally and rendered as clickable chips
+    - `Review`
+      - reads every node’s Description and Results, not just completed nodes
+      - returns structured findings for contradictions, outdated descriptions, redundancies, instrumentation risks, and dependency mismatches
+  - Interaction model
+    - `Assign` is a true toggle:
+      - on: show derived assignment/schedule
+      - off: hide derived scheduling state
+    - When assigned view is active, scheduling-relevant edits trigger automatic recomputation.
+    - Nodes open editor on click, not on drag.
+    - Background can be dragged to pan the workspace.
+    - Trackpad pinch zoom is scoped to the canvas rather than the whole page.
+    - Import auto-layout spreads imported graphs into dependency columns with aggressive spacing.
+    - Workspace bounds are effectively expanded by large margins so panning feels near-unbounded.
 - Why this approach was selected
-  - CP-SAT fits the combined precedence + capacity + assignment optimization problem directly.
-  - Python backend was simpler and more robust than browser-only solver integration for this repo.
-  - Edge-level parallelization matched the clarified domain semantics better than a node-level flag.
-  - Keeping assignment as derived state avoids corrupting editable graph data.
-  - Effective multiplier gating prevents stale multipliers from affecting planning when a node is no longer parallelized.
+  - CP-SAT was the cleanest exact formulation for dependencies + weekly capacity + assignment.
+  - A Python backend was materially simpler than browser-side solver integration.
+  - Edge-level parallelization matched the clarified semantics better than a node-level parallelize flag.
+  - Keeping assignment as derived state avoided corrupting editable graph definitions.
+  - Deterministic backend candidate enumeration made the AI acceleration loop safer than letting the model invent graph edits.
+  - Structured outputs for chat/review/reference lists made UI integration reliable.
+  - Separate `Description` and `Results` fields were necessary because future-plan inconsistencies often come from stale descriptions rather than completed-node status alone.
 - Known limitations
-  - No automated tests yet for scheduler correctness or interaction details.
-  - No explicit distinction between:
-    - truly external/no-personnel work
-    - accidentally unstaffed tasks with empty eligible operator list
-  - Completed nodes currently return zeroed schedule fields in derived results.
-  - No timeline/Gantt view; scheduling output is still shown mainly through node assignments and the global duration metric.
-  - Parallelization currently toggles any existing predecessor edge individually, but there is no dedicated edge editor or legend.
-  - Multiplier currently scales cost and workload only; there is no probabilistic or risk model behind it.
+  - No automated tests for scheduling correctness, OpenAI response handling, or complex UI interactions.
+  - Review and acceleration depend on LLM judgment and can still over- or under-call issues.
+  - `Review` uses at most 8 findings to reduce truncation risk; this constrains breadth on very large graphs.
+  - No explicit probability model or empirical risk calibration exists for multiplier/parallelization success.
+  - No timeline/Gantt view exists; users infer most schedule effects from planned duration, assignments, and node-level inspection.
+  - Chat and review do not edit the graph directly; all edits remain manual.
+  - The default README is stale relative to the current feature set.
+  - OpenAI calls require a working `OPENAI_API_KEY`; there is no offline fallback anymore.
 
 # Approaches Explored
 ## Approach: Per-step bipartite matching
 - Hypothesis / intuition
-  - Immediate conflicts between operators and ready tasks can be modeled cleanly as bipartite matching.
+  - Personnel distribution could be treated as a local matching problem among currently ready experiments and currently free operators.
 - Implementation details (code structure, models, algorithms, key parameters)
   - Conceptual only.
-  - Left side: ready experiments.
-  - Right side: available operators.
-  - Edge: operator eligible for experiment.
-  - Objective: maximize assignments at a single decision point.
+  - Experiments = left side, operators = right side, eligibility = edges.
+  - Objective would have been maximum matching at a single time slice.
 - What changed relative to previous attempts
-  - First formalization of “who should do what” in the graph.
+  - First formalization of operator assignment conflicts.
 - Results (qualitative + quantitative if available)
-  - Good local conflict model.
-  - No code or numeric results.
+  - Useful conceptual framing for “one operator on many tasks” and “many operators on one task.”
 - Failure modes / issues
-  - Cannot optimize the full project schedule over time.
-  - Ignores future bottlenecks and precedence interactions.
+  - Could not optimize the full project schedule over time.
+  - Ignored future bottlenecks, durations, and dependencies.
 - Conclusion (why kept or discarded)
-  - Discarded as the primary solution once user clarified that the best overall schedule was required.
+  - Discarded as primary solver approach once the requirement became “best overall schedule,” not just a valid current allocation.
 
-## Approach: Frontend-only exact scheduler in TypeScript
+## Approach: Frontend-only exact scheduling
 - Hypothesis / intuition
-  - For modest graph sizes, a custom exact search might be easier than adding infrastructure.
+  - A custom exact search in TypeScript might avoid backend complexity for modest graph sizes.
 - Implementation details (code structure, models, algorithms, key parameters)
-  - Discussed only.
-  - Candidate direction: branch-and-bound or direct search in TypeScript.
+  - Discussed as branch-and-bound / direct combinatorial search.
+  - Never implemented.
 - What changed relative to previous attempts
-  - Retained exact optimization but kept everything in the browser.
+  - Kept exactness while trying to stay browser-only.
 - Results (qualitative + quantitative if available)
-  - No code written.
+  - No implementation.
 - Failure modes / issues
-  - More custom algorithm complexity.
-  - Harder to extend cleanly with richer constraints.
+  - More custom algorithm work.
+  - Harder to extend with additional constraints.
+  - Worse long-term fit than using a mature solver.
 - Conclusion (why kept or discarded)
-  - Discarded once the user approved a Python backend and package installation.
+  - Discarded after the user approved adding a Python backend and packages.
 
 ## Approach: Browser-side CP-SAT / WASM
 - Hypothesis / intuition
-  - Use the right solver class but keep execution in-browser.
+  - Exact optimization could stay client-side if OR-Tools or equivalent ran in-browser.
 - Implementation details (code structure, models, algorithms, key parameters)
   - Discussed only.
-  - Would require browser-compatible solver packaging and likely a worker.
+  - Would have required WASM packaging and likely a worker.
 - What changed relative to previous attempts
-  - Attempted to keep exact solving without backend infrastructure.
+  - Preserved exact solving but avoided server infrastructure.
 - Results (qualitative + quantitative if available)
-  - No code written.
+  - No implementation.
 - Failure modes / issues
-  - Integration complexity too high for current repo.
-  - Worse fit than a small Python service.
+  - Integration overhead too high for the current app.
+  - Inferior ergonomics relative to a small local Python service.
 - Conclusion (why kept or discarded)
   - Discarded.
 
-## Approach: Python backend with FastAPI + OR-Tools CP-SAT
+## Approach: Python FastAPI backend with OR-Tools CP-SAT
 - Hypothesis / intuition
-  - A local Python service is the cleanest way to add an exact scheduling engine.
+  - A local Python service is the shortest path to correct, extensible scheduling.
 - Implementation details (code structure, models, algorithms, key parameters)
-  - Added:
-    - `backend/app.py`
-    - `backend/requirements.txt`
-    - project-local `.venv`
-  - Backend dependencies:
-    - `fastapi`
-    - `uvicorn`
-    - `ortools`
-  - Endpoints:
-    - `GET /api/health`
-    - `POST /api/schedule`
-  - Initial solver model:
-    - DAG validation
-    - start/end vars per active node
-    - optional intervals per `(node, operator)` eligibility pair
-    - `AddExactlyOne` assignment
-    - precedence edges as finish-to-start
-    - objective minimizes makespan with summed-end-time tie-break
+  - Implemented in [backend/app.py](/Users/paolofischer/Desktop/work/test/backend/app.py).
+  - Dependencies installed into local `.venv`.
+  - Solver details:
+    - validates acyclicity
+    - scales decimals to integers
+    - creates start/end vars per active node
+    - creates optional intervals per eligible `(node, operator)` pair
+    - `AddExactlyOne` for nodes with eligible operators
+    - `AddCumulative` per operator for weekly capacity
+    - objective minimizes makespan with a summed-end-time tie-break
+    - solver params: `max_time_in_seconds = 10.0`, `num_search_workers = 8`
 - What changed relative to previous attempts
-  - First implemented exact scheduler.
+  - First actual exact optimizer.
 - Results (qualitative + quantitative if available)
-  - Build/compile succeeded.
-  - In-process solver checks returned valid assignments and makespans.
+  - Remains the production scheduling core.
+  - In-process checks verified expected overlap/capacity behavior during development.
 - Failure modes / issues
-  - Sandbox blocked localhost port binding for direct runtime verification; had to use in-process checks.
-- Conclusion (why kept or discarded)
-  - Kept. This remains the scheduling foundation.
-
-## Approach: Always show selected operator names on nodes
-- Hypothesis / intuition
-  - Reuse the existing node `operators` field directly on the cards.
-- Implementation details (code structure, models, algorithms, key parameters)
-  - This was the original UI behavior before derived assignment was introduced.
-- What changed relative to previous attempts
-  - Baseline app state.
-- Results (qualitative + quantitative if available)
-  - Worked as an eligibility display.
-- Failure modes / issues
-  - `operators` conflated:
-    - eligible operators
-    - actual chosen assignment
-  - Became semantically wrong once solver-based assignment existed.
-- Conclusion (why kept or discarded)
-  - Discarded. Replaced by toggleable derived assignment display.
-
-## Approach: Toggle assignment display via `Assign`
-- Hypothesis / intuition
-  - Assignment is derived planning state and should be shown only on demand.
-- Implementation details (code structure, models, algorithms, key parameters)
-  - `Assign` button acts as a toggle:
-    - off -> solve and show assignments
-    - on -> hide assignments
-  - Assigned view keeps schedule in separate state.
-  - While assigned view is active, scheduling-relevant changes trigger recomputation.
-- What changed relative to previous attempts
-  - Replaced always-on operator display with intentional assignment view.
-- Results (qualitative + quantitative if available)
-  - Cleaner graph.
-  - Matches user’s intended workflow.
-- Failure modes / issues
-  - None currently known.
+  - Localhost/port friction occurred during sandboxed runs, but the code path itself worked.
 - Conclusion (why kept or discarded)
   - Kept.
 
-## Approach: Exclusive one-task-at-a-time staffing
+## Approach: Show selected operator names directly on node cards
 - Hypothesis / intuition
-  - Initially each operator would simply be unable to overlap tasks.
+  - The existing `operators` field could serve as the visible assignment.
 - Implementation details (code structure, models, algorithms, key parameters)
-  - Initial conceptual formulation used one-task-per-operator resource exclusivity.
+  - Original UI behavior before derived assignment display existed.
 - What changed relative to previous attempts
-  - First staffing rule before weekly capacities were introduced.
+  - Baseline implementation.
 - Results (qualitative + quantitative if available)
-  - Simpler mental model.
+  - Simple display, but semantically wrong once solver-based staffing was introduced.
 - Failure modes / issues
-  - Did not match the later domain requirement that one person can work on multiple experiments in parallel if weekly hours allow it.
+  - Conflated eligibility and actual assignment.
 - Conclusion (why kept or discarded)
-  - Discarded after user clarified weekly-hours capacity model.
+  - Discarded in favor of `Assign`-gated derived display.
+
+## Approach: Derived assignment shown only when `Assign` is active
+- Hypothesis / intuition
+  - Graph definition should remain editable and separate from computed staffing.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - `Assign` toggles `isAssignedView`.
+  - Schedule lives in separate derived state.
+  - Scheduling recomputes automatically whenever the assigned view is active and scheduling inputs change.
+- What changed relative to previous attempts
+  - Separated graph editing from planner output.
+- Results (qualitative + quantitative if available)
+  - Cleaner UI and clearer semantics.
+- Failure modes / issues
+  - None material at present.
+- Conclusion (why kept or discarded)
+  - Kept.
+
+## Approach: Exclusive one-task-per-operator staffing
+- Hypothesis / intuition
+  - Simpler staffing rule: one person cannot overlap tasks.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - Early conceptual rule only.
+- What changed relative to previous attempts
+  - Initial staffing assumption.
+- Results (qualitative + quantitative if available)
+  - Easier to reason about, but mismatched the real use case.
+- Failure modes / issues
+  - Did not match the requirement that a person can support multiple experiments if weekly hours allow it.
+- Conclusion (why kept or discarded)
+  - Discarded once weekly capacity became explicit.
 
 ## Approach: Weekly capacity-constrained staffing
 - Hypothesis / intuition
-  - Operators should be allowed to overlap tasks when total hours/week fits within capacity.
+  - Realistic planning requires partial overlapping effort rather than binary occupancy.
 - Implementation details (code structure, models, algorithms, key parameters)
-  - Added structured `Personnel` with `hoursPerWeek`.
-  - Added node `workHoursPerWeek`.
-  - Changed units from days to weeks in the UI and scheduling model.
-  - Backend changed from `AddNoOverlap` to `AddCumulative` per operator.
-  - Each active assigned node contributes weekly demand to its assigned operator.
+  - Added `hoursPerWeek` to personnel.
+  - Added `workHoursPerWeek` to nodes.
+  - Replaced exclusivity with cumulative operator capacity.
 - What changed relative to previous attempts
-  - Moved from exclusive capacity to renewable numeric weekly capacity.
+  - Moved from occupancy model to workload model.
 - Results (qualitative + quantitative if available)
-  - In-process solver verification:
-    - one operator with `20` hours/week
-    - two tasks at `10 hrs/wk` each
-    - both run in parallel from week `0` to `4`
-    - makespan `4.0`
+  - Correctly allowed parallel experiments on one operator when total weekly load fit capacity.
+  - Development verification included a `20 hrs/week` operator handling two `10 hrs/week` experiments in parallel with unchanged makespan.
 - Failure modes / issues
-  - Requires more careful workload modeling than simple overlap/no-overlap.
-- Conclusion (why kept or discarded)
-  - Kept. This is the current staffing rule.
-
-## Approach: Node-level parallelization
-- Hypothesis / intuition
-  - A node checkbox could mark a task as running “in parallel with predecessors.”
-- Implementation details (code structure, models, algorithms, key parameters)
-  - Discussed conceptually.
-  - Would have changed all incoming edges to start-to-start semantics.
-- What changed relative to previous attempts
-  - First thought for representing overlap semantics.
-- Results (qualitative + quantitative if available)
-  - Not implemented.
-- Failure modes / issues
-  - Too coarse after the user clarified intent.
-  - Real need was to parallelize specific dependencies, not all incoming edges uniformly.
-- Conclusion (why kept or discarded)
-  - Discarded in favor of edge-level parallelization.
-
-## Approach: Edge-level parallelization with dashed arrows
-- Hypothesis / intuition
-  - Parallelization is fundamentally a dependency-type change, so it belongs on the edge.
-- Implementation details (code structure, models, algorithms, key parameters)
-  - Added `parallelized: boolean` to `FlowEdge`.
-  - Added `Parallelize` button in node editor.
-  - Parallelize mode:
-    - start from a target node
-    - only existing predecessors are valid clicks
-    - clicking predecessor toggles the edge’s `parallelized` state
-  - Render:
-    - dashed SVG path for parallelized edges
-  - Backend:
-    - dashed edge -> start-to-start
-    - normal edge -> finish-to-start
-- What changed relative to previous attempts
-  - Replaced potential node-level flag with per-edge semantics.
-- Results (qualitative + quantitative if available)
-  - Build passed.
-  - In-process solver check:
-    - `A -> B` parallelized
-    - both tasks started at `0`
-    - makespan `4.0`
-- Failure modes / issues
-  - No separate edge editor or summary list yet.
-- Conclusion (why kept or discarded)
-  - Kept. This is the current dependency-overlap model.
-
-## Approach: Live drag-state click suppression
-- Hypothesis / intuition
-  - If a node is “dragging” during click, ignore the click.
-- Implementation details (code structure, models, algorithms, key parameters)
-  - Movement threshold.
-  - `draggingNodeId`/render-state gating path.
-- What changed relative to previous attempts
-  - First fix for editor opening on drag.
-- Results (qualitative + quantitative if available)
-  - Prevented unwanted editor opens during drag.
-- Failure modes / issues
-  - Sometimes suppressed real clicks because suppression was tied to render timing.
-- Conclusion (why kept or discarded)
-  - Discarded.
-
-## Approach: One-shot post-drag click suppression
-- Hypothesis / intuition
-  - Only the browser click emitted immediately after a real drag should be suppressed.
-- Implementation details (code structure, models, algorithms, key parameters)
-  - Track pointer start coordinates and `hasMoved`.
-  - On `pointerup`, if movement threshold exceeded:
-    - store `suppressedClickNodeId`
-  - Ignore only the next click on that same node.
-- What changed relative to previous attempts
-  - Removed reliance on live dragging render state.
-- Results (qualitative + quantitative if available)
-  - Restored reliable click behavior while preserving drag suppression.
-- Failure modes / issues
-  - None currently known.
+  - Increased conceptual complexity and required better node/personnel forms.
 - Conclusion (why kept or discarded)
   - Kept.
 
-## Approach: Multiplier only when node is effectively parallelized
+## Approach: Node-level parallelization flag
 - Hypothesis / intuition
-  - Multiplier is meaningful only once a node is actually being parallelized relative to an upstream dependency.
+  - A node checkbox could mean “run this node in parallel with all predecessors.”
 - Implementation details (code structure, models, algorithms, key parameters)
-  - Added `parallelizationMultiplier: 1 | 2 | 3 | 4` to nodes.
-  - Dropdown shown in editor only when selected node has at least one incoming parallelized edge.
-  - Effective multiplier computed via utility:
-    - if no incoming parallelized edge -> effective multiplier = `1`
-    - else effective multiplier = stored value
-  - Multiplier scales:
-    - effective cost
-    - effective weekly workload
-  - Duration unchanged.
-  - Flowchart header shows multiplier only when effective multiplier > `1x`.
+  - Discussed as converting incoming edges from finish-to-start to start-to-start for that target.
+  - Not ultimately kept.
 - What changed relative to previous attempts
-  - Added a controlled way to model multiple parallel variants of a risky successor experiment.
+  - First attempt to encode overlap semantics.
 - Results (qualitative + quantitative if available)
-  - Build passed.
-  - In-process solver check:
-    - parallelized successor with base `5 hrs/wk`, multiplier `2x`
-    - effective weekly demand `10 hrs/wk`
-    - duration unchanged
-    - makespan stayed `4.0`
+  - Exposed a semantic mismatch during discussion.
 - Failure modes / issues
-  - No probabilistic success model; multiplier is purely a cost/workload amplifier.
+  - Too coarse.
+  - Could not express “parallelize with predecessor A but not predecessor B.”
+- Conclusion (why kept or discarded)
+  - Discarded after clarification that parallelization should be edge-level.
+
+## Approach: Edge-level parallelization
+- Hypothesis / intuition
+  - Parallelization belongs to the dependency relation, not the node itself.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - `FlowEdge.parallelized: boolean`.
+  - Node editor enters a `Parallelize` interaction mode.
+  - User can click an existing predecessor to toggle the corresponding incoming edge.
+  - Parallelized edges render dashed.
+  - Scheduler interprets dashed edges as start-to-start.
+- What changed relative to previous attempts
+  - Replaced node-level semantics with edge-local semantics.
+- Results (qualitative + quantitative if available)
+  - Correctly changed both planned duration and downstream staffing interactions.
+  - Development check confirmed overlap after toggling a parallelized edge.
+- Failure modes / issues
+  - No dedicated edge editor; toggling lives in node interaction mode.
 - Conclusion (why kept or discarded)
   - Kept.
 
-## Approach: Export current graph state as downloadable JSON
+## Approach: Parallelization multiplier with unchanged duration
 - Hypothesis / intuition
-  - Since the live browser graph can diverge from repo defaults, exporting current state is the cleanest way to inspect/share the active graph.
+  - Running multiple variants in parallel should consume more money and weekly attention, but not necessarily more wall-clock time.
 - Implementation details (code structure, models, algorithms, key parameters)
-  - Added `Export` button in toolbar.
-  - Creates a JSON blob from in-memory:
-    - `nodes`
-    - `edges`
-    - `personnel`
-    - storage key
-    - export timestamp
-  - Downloads file `pipeline-graph-<timestamp>.json`
+  - Added `parallelizationMultiplier` in `{1,2,3,4}`.
+  - Dropdown shown only when target node has at least one incoming parallelized edge.
+  - Effective multiplier forced to `1` otherwise.
+  - Multiplier badge shown on node header only if effective multiplier > `1x`.
 - What changed relative to previous attempts
-  - Replaced the need for console inspection or ad hoc debugging.
+  - Added resource-scaling semantics on top of edge parallelization.
 - Results (qualitative + quantitative if available)
-  - Build passed.
+  - Planned cost and workload scale; duration remains unchanged.
+  - Development check confirmed doubled workload with unchanged makespan for a `2x` parallelized successor.
 - Failure modes / issues
-  - No import path yet.
+  - No explicit probabilistic grounding for why `2x/3x/4x` should improve success.
+- Conclusion (why kept or discarded)
+  - Kept as a controllable heuristic input.
+
+## Approach: Deterministic accelerate shortlist with `1x` only
+- Hypothesis / intuition
+  - V1 of agentic acceleration could be kept safe by letting the backend enumerate all legal `1x` edge-parallelization moves and letting the model choose among them.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - Added `budgetUsd`.
+  - Added `Accelerate` UI and proposal panel.
+  - Backend enumerated edge candidates, filtered to budget-feasible duration-improving moves, then used OpenAI to choose one.
+- What changed relative to previous attempts
+  - First AI-assisted optimization feature.
+- Results (qualitative + quantitative if available)
+  - Working proof of concept.
+- Failure modes / issues
+  - Too narrow.
+  - Did not reason over multipliers or risk.
+  - Initial backend had a deterministic fallback when OpenAI key was absent, which was later removed to avoid silent non-LLM behavior.
+- Conclusion (why kept or discarded)
+  - Discarded as the final accelerate logic, but important stepping stone.
+
+## Approach: Final accelerate workflow with risk-aware multiplier choice
+- Hypothesis / intuition
+  - The model should choose the next acceleration step by balancing deterministic duration reduction, budget usage, and qualitative scientific risk.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - Implemented in `POST /api/accelerate/propose`.
+  - Backend enumerates all legal non-parallelized edge candidates across multipliers `1..4`, subject to current effective multiplier floor and rejected candidate blacklist.
+  - Filters:
+    - resulting planned cost must stay within budget if budget is set
+    - deterministic planned duration must improve
+  - OpenAI prompt asks model to:
+    - estimate success probability from descriptions
+    - prefer meaningful time savings and sensible scientific logic
+    - apply diminishing returns across multipliers
+  - Risk-adjusted expected duration formula:
+    - `expected = resulting_planned_duration + (1 - success_probability) * target_duration`
+  - Proposal is discarded if expected duration is not better than baseline.
+- What changed relative to previous attempts
+  - Added multiplier search, scientific reasoning, and risk-adjusted stopping rule.
+- Results (qualitative + quantitative if available)
+  - Current shipped accelerate behavior.
+- Failure modes / issues
+  - Still heuristic; success probability is model-estimated, not empirically trained.
+  - UI has not been upgraded to expose deeper rationale beyond the simple panel.
+- Conclusion (why kept or discarded)
+  - Kept as the current best acceleration agent.
+
+## Approach: Chat restricted strictly to graph-only facts
+- Hypothesis / intuition
+  - Safest first version is to forbid outside knowledge entirely.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - Initial chat prompt restricted answers to graph data only.
+- What changed relative to previous attempts
+  - First graph-grounded Q&A implementation.
+- Results (qualitative + quantitative if available)
+  - Reliable factual grounding for “what exists in the graph” questions.
+- Failure modes / issues
+  - Too restrictive for expert judgment questions like “can we skip step A?”
+- Conclusion (why kept or discarded)
+  - Discarded in favor of hybrid graph-grounded + general-knowledge behavior.
+
+## Approach: Hybrid graph-grounded chat with structured node references
+- Hypothesis / intuition
+  - Chat should behave like normal ChatGPT for scientific judgment while staying graph-grounded for “our program” facts.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - Backend supplies full graph context and optional current schedule.
+  - Prompt rules:
+    - graph snapshot is sole source of truth for user-program facts
+    - latest graph overrides prior conversation if they conflict
+    - model may use general scientific/drug-development knowledge for interpretation/advice
+    - node IDs must not appear inline in prose
+    - references returned only in `referenced_node_ids`
+  - Frontend renders referenced nodes as clickable chips that center and highlight nodes.
+- What changed relative to previous attempts
+  - Allowed general reasoning without sacrificing graph grounding.
+- Results (qualitative + quantitative if available)
+  - More useful scientific conversation.
+  - Fixed a second-turn Responses API error by replaying assistant history as `output_text` rather than `input_text`.
+- Failure modes / issues
+  - Still depends on prompt compliance.
+- Conclusion (why kept or discarded)
+  - Kept.
+
+## Approach: Graph review as a dedicated structured analysis pass
+- Hypothesis / intuition
+  - Contradiction/redundancy detection should be a separate review workflow, not just an ad hoc chat prompt.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - Added `results` to nodes.
+  - Added `Review` panel and `POST /api/review`.
+  - Prompt instructs model to examine Description and Results for every node, including ongoing nodes.
+  - Structured findings:
+    - severity
+    - type
+    - summary
+    - details
+    - suggestedAction
+    - nodeIds
+  - Prompt requests at most 8 findings, ordered by importance.
+- What changed relative to previous attempts
+  - Introduced read-only LLM graph analysis rather than conversational review.
+- Results (qualitative + quantitative if available)
+  - Current shipped contradiction/redundancy review feature.
+- Failure modes / issues
+  - Initial version sometimes failed with `Failed to fetch` because the structured response was too long and validation failed after truncation.
+  - Mitigated by increasing output budget, keeping findings concise, reducing the cap from 12 to 8, and returning a clean API error on parse failure.
+- Conclusion (why kept or discarded)
+  - Kept.
+
+## Approach: Imported graph keeps original coordinates
+- Hypothesis / intuition
+  - Imported files could preserve author-defined coordinates.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - Early import behavior.
+- What changed relative to previous attempts
+  - None.
+- Results (qualitative + quantitative if available)
+  - Worked technically.
+- Failure modes / issues
+  - Large imported graphs were dense and hard to inspect.
+- Conclusion (why kept or discarded)
+  - Discarded in favor of import-time auto-layout.
+
+## Approach: Auto-layout with aggressive spacing
+- Hypothesis / intuition
+  - Imported graphs should default to a readable dependency-column layout even if the source JSON has arbitrary coordinates.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - Implemented in `autoLayoutGraphState`.
+  - Computes a DAG-style layering by indegree/topological depth.
+  - Sorts within layers by parent structure, completion status, and title.
+  - Uses large spacing constants:
+    - horizontal step at least `NODE_WIDTH + 220`
+    - vertical step at least `NODE_MIN_HEIGHT + 140`
+- What changed relative to previous attempts
+  - Replaced literal imported coordinates with normalized presentation layout on import.
+- Results (qualitative + quantitative if available)
+  - Made demo graphs usable immediately after import.
+- Failure modes / issues
+  - Layout is presentation-oriented rather than graph-optimization-oriented.
+- Conclusion (why kept or discarded)
+  - Kept.
+
+## Approach: Homegrown pinch zoom then pubmed-style pan/zoom behavior
+- Hypothesis / intuition
+  - Native-feeling canvas navigation matters for large graphs.
+- Implementation details (code structure, models, algorithms, key parameters)
+  - Early pinch implementation used React/native wheel interception and caused wobble/drift.
+  - Later interaction was reworked to mirror the behavior from `~/Desktop/work/pubmed/visualizer`:
+    - pointer-centered wheel/pinch zoom on canvas only
+    - background drag pans the workspace
+    - node drag remains separate
+    - accidental clicks after pan are suppressed
+    - large workspace margins simulate near-infinite panning room
+- What changed relative to previous attempts
+  - Replaced clunky zoom with the known-good interaction model from another local project.
+- Results (qualitative + quantitative if available)
+  - Whole-page zoom issue resolved.
+  - Pan/zoom feel materially closer to the reference implementation.
+- Failure modes / issues
+  - “Infinite” bounds are simulated with large margins, not truly infinite coordinates.
 - Conclusion (why kept or discarded)
   - Kept.
 
 # Key Insights
 - Non-obvious discoveries
-  - Session notes were stale relative to the codebase early on; code inspection was necessary to discover that `operators` already existed on nodes.
-  - The crucial modeling distinction is:
-    - `operators` = eligible operators
-    - assignment = derived scheduler output
-  - Parallelization belongs on edges, not nodes, once the intent is “this specific predecessor/successor relationship overlaps.”
-  - Effective multiplier must be gated by incoming parallelized edges, otherwise stale multiplier values can silently distort cost/workload after de-parallelization.
-  - Click suppression tied to render-time drag state is brittle; event-sequenced one-shot suppression is much more reliable.
+  - The ambiguity between eligible operators and assigned operators caused multiple UI/modeling issues; separating them was necessary.
+  - Parallelization semantics live on dependencies, not on nodes, because only edges can express selective overlap.
+  - A node’s `Results` field must be evaluated even when the node is not completed; intermediate findings can still invalidate downstream plans.
+  - Graph-grounded chat and review become much more robust when node references are returned structurally rather than embedded inline in prose.
+  - For this domain, AI should not invent legal edits; backend enumeration of allowable graph moves is a strong safety constraint.
 - Patterns across experiments
-  - Every time semantics became ambiguous, the right fix was to separate:
-    - editable inputs
-    - derived planning outputs
-  - The scheduler and the UI must share exactly the same “effective” logic for cost/workload/multiplier, otherwise planning and display drift apart.
-  - Recomputing only on scheduling-relevant changes preserves responsiveness while keeping assigned view accurate.
+  - Most useful acceleration opportunities come from turning a strictly sequential dependency into a start-to-start relation.
+  - Multipliers are only meaningful when parallelization already exists; showing multiplier controls earlier creates stale/noisy UI.
+  - Large imported scientific graphs become unusable unless auto-layout spacing is intentionally generous.
+  - Review findings often arise from stale downstream assumptions rather than explicit logical contradictions.
 - Important trade-offs identified
-  - Python backend + OR-Tools:
-    - pros: exact scheduling, clean extensibility
-    - cons: second runtime process and Python dependency management
-  - Weekly capacity model:
-    - pros: closer to reality, supports parallel operator work
-    - cons: more complex interpretation of workload
-  - Multiplier with unchanged duration:
-    - pros: simple, matches “multiple variants run in parallel”
-    - cons: ignores richer outcomes like probabilistic success or lab throughput effects
+  - Exact scheduling on the backend was worth the infrastructure cost because the constraint model is materially cleaner and more extensible there.
+  - The accelerate agent balances deterministic simulation and LLM judgment:
+    - deterministic backend enforces legality and budget
+    - LLM adds domain-sensitive prioritization and risk heuristics
+  - Chat needed hybrid behavior:
+    - graph facts from graph only
+    - expert judgment allowed from outside knowledge
+  - Review output breadth had to be capped because richer structured responses increased truncation/parse risk.
 
 # Decision Log
 - Decision
-  - Start with formal local assignment as bipartite matching.
+  - Treat node `operators` as eligible operators, not actual assignments.
   - Reasoning
-    - Directly matched the initial operator conflict examples.
+    - Prevented semantic confusion once schedule assignment became derived.
   - Evidence supporting it
-    - User’s original examples were one-operator/multiple-task and one-task/multiple-operator conflicts.
+    - The same node could list multiple possible operators while the scheduler must choose one.
 - Decision
-  - Move to best-overall scheduling instead of local assignment.
+  - Use a Python backend with FastAPI and OR-Tools CP-SAT.
   - Reasoning
-    - User explicitly wanted the globally best plan.
+    - Exact solver support and cleaner extensibility outweighed backend setup cost.
   - Evidence supporting it
-    - Local matching cannot optimize over time and dependencies.
+    - Browser-only alternatives were discussed but not practical for this repo.
 - Decision
-  - Use Python backend with CP-SAT.
+  - Switch from one-task-at-a-time staffing to weekly capacity constraints.
   - Reasoning
-    - Strongest exact-solver path with lowest integration risk in this repo.
+    - Real operators can support multiple experiments in parallel.
   - Evidence supporting it
-    - User approved package installation; in-browser solver path was unnecessarily complex.
+    - User explicitly required weekly-hours modeling.
 - Decision
-  - Separate eligible operators from displayed assignments.
+  - Change time unit from days to weeks.
   - Reasoning
-    - Avoid semantic ambiguity in both UI and scheduling.
+    - Better matched the planning granularity of the intended use case.
   - Evidence supporting it
-    - Always-on display of `operators` became wrong once assignment was derived.
+    - User explicitly requested weekly modeling alongside weekly personnel effort.
 - Decision
-  - Make assignment display a toggle.
+  - Implement edge-level parallelization.
   - Reasoning
-    - Preserve a clean planning view while still exposing solver output on demand.
+    - The dependency relation, not the node, determines whether overlap is allowed.
   - Evidence supporting it
-    - User explicitly requested `Assign` behavior and later requested it to toggle back off.
-- Decision
-  - Replace exclusive operator occupancy with weekly capacity.
-  - Reasoning
-    - Domain clarified that one operator can work across multiple projects in parallel.
-  - Evidence supporting it
-    - User introduced `hoursPerWeek` for personnel and `workHoursPerWeek` for nodes.
-- Decision
-  - Represent parallelization on edges, not nodes.
-  - Reasoning
-    - User clarified that specific dependencies, not whole nodes, should be toggled.
-  - Evidence supporting it
-    - Desired workflow was “select Parallelize on node, then click an existing predecessor.”
+    - User clarified with `A -> B -> C` style examples that selective predecessor overlap is required.
 - Decision
   - Keep multiplier from changing duration.
   - Reasoning
-    - Multiple variants are being run simultaneously, so wall-clock time should stay constant for now.
+    - Multiple variants running in parallel should increase resource use, not wall-clock time.
   - Evidence supporting it
-    - User agreed with unchanged duration after discussion.
+    - User accepted unchanged duration as the intended first-pass behavior.
 - Decision
-  - Show multiplier only when effective multiplier > `1x`.
+  - Make `Assign` a toggle and automatically recompute while assigned view is active.
   - Reasoning
-    - `1x` is baseline and adds noise if always shown.
+    - Derived schedule state should be inspectable on demand and stay fresh when graph inputs change.
   - Evidence supporting it
-    - User explicitly requested this change.
+    - User explicitly requested toggle behavior and automatic recomputation on eligible-operator edits.
+- Decision
+  - Add import/export and import-time auto-layout.
+  - Reasoning
+    - Needed realistic large examples and a way to evaluate the AI features.
+  - Evidence supporting it
+    - User wanted to import/export graph JSON and later found imported graphs too dense.
+- Decision
+  - Use the OpenAI Responses API with `gpt-5.4-2026-03-05`.
+  - Reasoning
+    - Consistent API surface across accelerate/chat/review and pinned model behavior.
+  - Evidence supporting it
+    - User explicitly requested OpenAI API usage and later explicitly requested the pinned model.
+- Decision
+  - Remove accelerate fallback when no OpenAI key is present.
+  - Reasoning
+    - Silent deterministic fallback obscured whether the AI path was actually running.
+  - Evidence supporting it
+    - User explicitly requested a real error instead of fallback behavior.
+- Decision
+  - Add `Results` as a separate node field and implement `Review` as a dedicated feature.
+  - Reasoning
+    - Contradiction detection depends on distinguishing intended plan from observed outcome.
+  - Evidence supporting it
+    - User described needing to catch stale descriptions, device problems, and ongoing intermediate findings.
+- Decision
+  - Let chat use outside knowledge for interpretation but graph only for “our program” facts.
+  - Reasoning
+    - Pure graph-only chat was too weak for expert advice questions.
+  - Evidence supporting it
+    - User explicitly wanted normal-ChatGPT-like reasoning while grounding user-program claims in the graph.
+- Decision
+  - Forbid raw node IDs in assistant prose.
+  - Reasoning
+    - IDs like `c10_safety_pharm` degraded readability and were redundant with structured reference chips.
+  - Evidence supporting it
+    - User reported awkward inline citations in chat answers.
+- Decision
+  - Reuse the pubmed interaction pattern for pan/zoom.
+  - Reasoning
+    - The first custom pinch implementation felt clunky and unstable.
+  - Evidence supporting it
+    - User explicitly reported wobble and pointed to `~/Desktop/work/pubmed` as the reference behavior.
 
 # Experiments and Results
-- Experiment
-  - Name: Python dependency installation
+- Scheduling model experiment
   - Inputs / configs
-    - created `.venv`
-    - installed `fastapi`, `uvicorn`, `ortools`
+    - Initial exact scheduler on backend with precedence + assignment + exclusivity.
   - Outputs / metrics
-    - successful install after escalated network access
+    - Valid schedules and assignments.
   - Observed impact
-    - enabled backend implementation
-- Experiment
-  - Name: Frontend env typing fix
+    - Established backend scheduling foundation but later required weekly-capacity refinement.
+- Weekly capacity overlap experiment
   - Inputs / configs
-    - `npm run build`
+    - One operator with `20 hrs/week`; two parallel nodes at `10 hrs/week` each.
   - Outputs / metrics
-    - initial failure due to missing `vite/client` types for `import.meta.env`
-    - fixed by adding `src/vite-env.d.ts`
-    - build then passed
+    - Both nodes assigned concurrently; makespan remained `4.0` weeks.
   - Observed impact
-    - restored type-safe frontend build
-- Experiment
-  - Name: Initial backend in-process validation
+    - Confirmed cumulative-capacity model allowed realistic overlap.
+- Edge parallelization overlap experiment
   - Inputs / configs
-    - sample nodes:
-      - `Orders` 6 weeks
-      - `Enrichment` 4 weeks
-      - `External Review` 3 weeks, no operators
-    - personnel:
-      - Avery, Morgan, Sam
+    - `A -> B` with edge toggled to `parallelized = true`.
   - Outputs / metrics
-    - makespan `10.0`
-    - valid operator assignments
-    - diagnostic for no-operator external node
+    - Both tasks started at week `0`; resulting makespan `4.0`.
   - Observed impact
-    - validated baseline CP-SAT integration
-- Experiment
-  - Name: Weekly capacity overlap validation
+    - Confirmed start-to-start semantics were wired correctly.
+- Multiplier scaling experiment
   - Inputs / configs
-    - one operator with `20 hrs/week`
-    - two tasks with `10 hrs/week` each
-    - no precedence edge
+    - Parallelized successor with multiplier `2x`.
   - Outputs / metrics
-    - both tasks ran from week `0` to `4`
-    - makespan `4.0`
+    - Weekly workload doubled; duration unchanged; makespan unchanged at `4.0`.
   - Observed impact
-    - proved cumulative-capacity model allows lawful overlap
-- Experiment
-  - Name: Parallelized edge validation
+    - Validated intended resource-scaling semantics.
+- Chat history replay bug
   - Inputs / configs
-    - `A -> B`
-    - edge marked `parallelized = true`
-    - both tasks assigned to same operator within weekly capacity
+    - Send a second chat prompt after receiving the first answer.
   - Outputs / metrics
-    - both tasks started at `0`
-    - makespan `4.0`
+    - OpenAI error: assistant history sent as `input_text` instead of `output_text`.
   - Observed impact
-    - proved start-to-start semantics are active
-- Experiment
-  - Name: Multiplier workload scaling validation
+    - Fixed by replaying assistant messages as `output_text`; multi-turn chat then worked.
+- Review truncation bug
   - Inputs / configs
-    - predecessor `A`
-    - parallelized successor `B`
-    - `B.workHoursPerWeek = 5`
-    - `B.parallelizationMultiplier = 2`
+    - Run `Review` on a graph large enough to generate many findings.
   - Outputs / metrics
-    - `B` effective weekly workload became `10`
-    - duration unchanged
-    - makespan stayed `4.0`
+    - UI surfaced `Failed to fetch`; backend had incomplete structured response.
   - Observed impact
-    - validated intended multiplier semantics
-- Experiment
-  - Name: Drag suppression via live drag state
+    - Mitigated via higher token budget, concise-finding prompt, cap reduction to 8 findings, and clean API error handling.
+- Import layout density experiment
   - Inputs / configs
-    - movement threshold with drag-state-driven click suppression
+    - Import a large biology/IND graph JSON.
   - Outputs / metrics
-    - fixed accidental open on drag
-    - introduced missed clicks
+    - Nodes initially clustered too tightly.
   - Observed impact
-    - identified render-timing bug in suppression strategy
-- Experiment
-  - Name: One-shot post-drag suppression
+    - Auto-layout spacing was repeatedly increased until the graph became usable for presentation.
+- Canvas interaction experiment
   - Inputs / configs
-    - suppress only next click after true drag
+    - Trackpad pinch and background drag on large imported graphs.
   - Outputs / metrics
-    - drag no longer opens editor
-    - click reliably opens editor
+    - Initial custom zoom wobbled and sometimes affected whole-page zoom.
   - Observed impact
-    - stabilized core node interaction
+    - Replaced with reference behavior from `pubmed`, yielding smoother canvas-local navigation.
+- Demo graph generation experiment
+  - Inputs / configs
+    - Created importable example graphs from a paper and a review-focused contradictory program.
+  - Outputs / metrics
+    - Files added:
+      - [example_11h_ind_graph.json](/Users/paolofischer/Desktop/work/test/example_11h_ind_graph.json)
+      - [example_11h_ind_graph_compact.json](/Users/paolofischer/Desktop/work/test/example_11h_ind_graph_compact.json)
+      - [example_review_demo_graph.json](/Users/paolofischer/Desktop/work/test/example_review_demo_graph.json)
+  - Observed impact
+    - Enabled practical demos for scheduling, acceleration, chat, and review.
 
 # Open Problems
 - Known issues
-  - No automated tests for:
-    - scheduling semantics
-    - edge parallelization
-    - multiplier behavior
-    - drag/click behavior
-    - export integrity
-  - No import path for exported JSON.
-  - No explicit label in the UI distinguishing:
-    - external/no-personnel tasks
-    - internally staffed tasks with empty eligible operator lists
+  - README/documentation in repo root is behind the current feature set.
+  - No test suite exists for:
+    - schedule correctness
+    - import normalization
+    - accelerate candidate logic
+    - chat/review structured parsing
+    - pan/zoom interactions
+  - The review feature can still miss subtle issues or over-report speculative ones.
+  - Chat and review responses are only as good as the current prompt design and model behavior.
 - Unresolved questions
-  - Should multiplier eventually influence:
-    - chance of success
-    - priority
-    - downstream branching logic
-  - Should completed nodes preserve historical schedule fields instead of zeroing them?
-  - Should parallelized edges have richer semantics later:
-    - partial overlap offsets
-    - lag times
-    - grouped parallelization controls
-  - Should planned duration remain hidden as `Not run` when assigned view is off, or should last-computed value remain visible?
+  - How should acceleration risk be modeled beyond pure LLM judgment:
+    - per-edge priors
+    - user-provided confidence
+    - historical success data
+  - Should `Review` eventually propose concrete graph edits or remain advisory only?
+  - Should `ChatGPT` gain tool-like operations such as “show critical path,” “list all completed nodes,” or “draft a new node”?
+  - Should imported coordinates ever be preserved optionally rather than always auto-laid out?
+  - Should there be a distinct representation for external work vs unintentionally unstafed work?
 - Risks
-  - Shared “effective” logic currently exists in both frontend and backend; if extended carelessly, drift could reappear.
-  - Solver complexity may grow if future requirements add deadlines, calendars, probabilistic outcomes, or multi-operator tasks.
-  - Without tests, refactors can easily break subtle interaction behavior.
+  - Users may overtrust risk-adjusted accelerate proposals even though success probability is heuristic.
+  - Large graphs may stretch prompt size and structured-output reliability.
+  - Schedule semantics for parallelization are deterministic; they do not capture partial information flow or staged readouts.
+  - Current review prompt may identify apparent contradictions that are actually acceptable scientific contingencies if the descriptions are underspecified.
 
 # Next Steps
 - Concrete, actionable items
-  - Add backend tests for:
-    - cycle rejection
-    - finish-to-start vs start-to-start edges
-    - cumulative operator capacity
-    - multiplier gating and scaling
-    - no-operator tasks
-  - Add frontend tests for:
-    - `Assign` toggle and automatic recomputation
-    - `Parallelize` interaction mode
-    - multiplier dropdown visibility
-    - drag vs click behavior
-    - export output shape
-  - Add import capability for exported JSON.
-  - Consider adding a schedule timeline / Gantt view.
-  - Consider explicit node flag for external/no-personnel work.
+  - Add automated tests for:
+    - CP-SAT schedule invariants
+    - edge parallelization semantics
+    - multiplier scaling
+    - import normalization
+    - chat/review backend schema handling
+  - Update [README.md](/Users/paolofischer/Desktop/work/test/README.md) to match the current app.
+  - Add explicit graph legend/help text for:
+    - dashed edges
+    - multiplier badge
+    - assignment toggle semantics
+  - Add a lightweight timeline/Gantt visualization of scheduled nodes.
+  - Add better empty/loading/error states around `Accelerate`, `ChatGPT`, and `Review`.
+  - Consider surfacing candidate details in accelerate UI:
+    - multiplier
+    - success probability
+    - expected duration
 - Suggested experiments or improvements
-  - Stress-test solver with larger DAGs and many parallelized edges.
-  - Compare objective variants:
-    - pure makespan
-    - makespan + fairness
-    - makespan + critical-priority weighting
-  - Evaluate whether multiplier should eventually support fractional or larger values (inferred future need).
+  - Compare `Accelerate` suggestions on:
+    - compact graph
+    - full IND graph
+    - contradiction-heavy review demo graph
+  - Add optional user-provided “parallelization confidence” or “scientific dependence severity” fields per edge.
+  - Explore whether `Review` should distinguish between:
+    - likely issue
+    - possible issue
+    - informational note
+  - Add richer graph search/filtering for large imported programs.
+  - Add conversation/session reset controls for `ChatGPT` beyond closing the panel.
 
 # Reproduction Notes
 - How to reproduce the current best result
-  - Setup:
-    - `python3 -m venv .venv`
-    - `.venv/bin/pip install -r backend/requirements.txt`
-    - `npm install`
-  - Run backend:
-    - `npm run dev:server`
-  - Run frontend:
-    - `npm run dev -- --host 127.0.0.1`
-  - Open:
-    - `http://127.0.0.1:5173/`
-  - In the UI:
-    - add personnel with weekly hours in the `Personnel` panel
-    - create/edit nodes with duration in weeks, cost, work hours/week, and eligible operators
-    - use `Connect` to create edges
-    - use `Parallelize` on a node, then click an existing predecessor to toggle that edge’s parallelization
-    - if a node has an incoming parallelized edge, open its editor to set multiplier `1x..4x`
-    - click `Assign` to compute plan
-    - click `Assign` again to hide assignments
-    - click `Export` to download current graph state
+  - Install frontend dependencies:
+    ```bash
+    npm install
+    ```
+  - Create and populate Python environment:
+    ```bash
+    python3 -m venv .venv
+    .venv/bin/pip install -r backend/requirements.txt
+    ```
+  - Create local `.env` in project root:
+    ```env
+    OPENAI_API_KEY=your_key_here
+    OPENAI_ACCELERATE_MODEL=gpt-5.4-2026-03-05
+    OPENAI_CHAT_MODEL=gpt-5.4-2026-03-05
+    OPENAI_REVIEW_MODEL=gpt-5.4-2026-03-05
+    ```
+  - Start backend:
+    ```bash
+    npm run dev:server
+    ```
+  - Start frontend:
+    ```bash
+    npm run dev
+    ```
+  - Build check:
+    ```bash
+    npm run build
+    ```
 - Dependencies, configs, commands
-  - Frontend:
+  - Frontend scripts in [package.json](/Users/paolofischer/Desktop/work/test/package.json):
     - `npm run dev`
-    - `npm run build`
-  - Backend:
     - `npm run dev:server`
-    - `.venv/bin/python -m py_compile backend/app.py`
-  - Key files
-    - `backend/app.py`
-    - `backend/requirements.txt`
-    - `src/App.tsx`
-    - `src/hooks/useLocalStorageGraph.ts`
-    - `src/types/graph.ts`
-    - `src/utils/graph.ts`
-    - `src/utils/metrics.ts`
-    - `src/components/NodeEditor.tsx`
-    - `src/components/FlowNode.tsx`
-    - `src/components/EdgeLayer.tsx`
-    - `src/components/Toolbar.tsx`
-    - `src/components/PersonnelPanel.tsx`
-    - `src/styles.css`
-    - `vite.config.ts`
+    - `npm run build`
+  - Backend dependencies are defined in `backend/requirements.txt` (not re-listed here; use the file as source of truth).
+  - Vite frontend uses `VITE_SCHEDULER_API_URL` when provided, otherwise defaults to `/api`.
+  - Graph import files available for demos:
+    - [example_11h_ind_graph.json](/Users/paolofischer/Desktop/work/test/example_11h_ind_graph.json)
+    - [example_11h_ind_graph_compact.json](/Users/paolofischer/Desktop/work/test/example_11h_ind_graph_compact.json)
+    - [example_review_demo_graph.json](/Users/paolofischer/Desktop/work/test/example_review_demo_graph.json)
 
 # Context for Future Sessions
 - What a new model should know before continuing
-  - This project is no longer just a flowchart editor; it is now a scheduling/planning UI with an exact backend optimizer.
-  - The most important semantic distinctions are:
-    - node `operators` = eligible operators
-    - assignment = derived schedule output
-    - edge `parallelized` = start-to-start dependency
-    - node `parallelizationMultiplier` = stored candidate value, effective only when node has an incoming parallelized edge
-  - Time is measured in weeks.
-  - Operator load is measured in hours per week.
-  - The current UI intentionally remains restrained and should be iterated, not redesigned.
+  - The core app is no longer just a scheduler; it is now a combined planning, acceleration, chat, and review tool.
+  - The current source of truth for implemented behavior is:
+    - [src/App.tsx](/Users/paolofischer/Desktop/work/test/src/App.tsx)
+    - [src/types/graph.ts](/Users/paolofischer/Desktop/work/test/src/types/graph.ts)
+    - [src/hooks/useLocalStorageGraph.ts](/Users/paolofischer/Desktop/work/test/src/hooks/useLocalStorageGraph.ts)
+    - [backend/app.py](/Users/paolofischer/Desktop/work/test/backend/app.py)
+  - OpenAI-backed features require a live API key; there is no non-LLM fallback path anymore.
+  - The chat prompt has several important constraints already tuned:
+    - latest graph overrides prior conversation
+    - graph facts must come from graph
+    - outside knowledge allowed for interpretation
+    - no raw node IDs in prose
+  - The review prompt explicitly considers non-completed nodes’ results; do not regress this.
+  - Imported graphs are intentionally auto-laid out rather than preserving source coordinates.
 - Pitfalls to avoid
-  - Do not reintroduce ambiguity between eligibility and actual assignment.
-  - Do not make multiplier affect duration unless the domain model is explicitly changed.
-  - Do not tie click suppression to live drag render state.
-  - Do not assume exported JSON import exists; it does not yet.
-  - Do not assume empty eligible operators always means an error; current model allows no-personnel tasks.
+  - Do not reintroduce ambiguity between eligible operators and assigned operators.
+  - Do not move parallelization back to a node-level flag unless the product requirement changes.
+  - Do not let chat/review write inline raw node IDs in assistant text; UI reference chips are the intended mechanism.
+  - Do not silently fall back when OpenAI fails; current behavior intentionally surfaces real errors.
+  - Be careful when modifying pan/zoom; earlier custom implementations felt noticeably worse than the current reference-style interaction.
+  - Avoid assuming only completed nodes have meaningful results.
 - Suggested starting point
-  - Start with `src/App.tsx` and `backend/app.py` to understand the orchestration and solver semantics.
-  - If making scheduling changes, also inspect `src/utils/graph.ts` because effective cost/workload/multiplier logic is centralized there.
-  - Highest-value next work is likely:
-    - tests
-    - import/export round-trip
-    - richer schedule visualization
+  - If continuing AI features:
+    - start in [backend/app.py](/Users/paolofischer/Desktop/work/test/backend/app.py) with the prompt and schema logic.
+  - If continuing graph/UI work:
+    - start in [src/App.tsx](/Users/paolofischer/Desktop/work/test/src/App.tsx) and [src/components/Canvas.tsx](/Users/paolofischer/Desktop/work/test/src/components/Canvas.tsx).
+  - If continuing import/state/model work:
+    - start in [src/hooks/useLocalStorageGraph.ts](/Users/paolofischer/Desktop/work/test/src/hooks/useLocalStorageGraph.ts) and [src/types/graph.ts](/Users/paolofischer/Desktop/work/test/src/types/graph.ts).
+  - First sanity check after any substantial change:
+    - run `npm run build`
+    - if backend changed, also ensure `backend/app.py` still imports/compiles cleanly
