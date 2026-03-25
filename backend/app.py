@@ -102,6 +102,88 @@ class ProposalChoice(BaseModel):
     estimated_success_probability: float = Field(ge=0, le=1)
 
 
+RiskLevel = Literal["Very Low", "Low", "Medium", "High", "Very High"]
+
+
+class RiskRecommendation(BaseModel):
+    action: str
+    targetRiskDimension: Literal[
+        "scientific",
+        "execution",
+        "regulatory",
+        "fragility",
+        "cross_cutting",
+    ]
+    expectedEffect: str
+    costImplication: Literal["Low", "Medium", "High"]
+    timelineImpact: Literal["reduces delay", "prevents rework", "neutral"]
+
+
+class NodeRiskAssessment(BaseModel):
+    nodeId: str
+    scientificRisk: RiskLevel
+    executionRisk: RiskLevel
+    regulatoryRisk: RiskLevel
+    overallRisk: RiskLevel
+    fragility: RiskLevel
+    summary: str
+    scientificDrivers: list[str] = Field(default_factory=list)
+    executionDrivers: list[str] = Field(default_factory=list)
+    regulatoryDrivers: list[str] = Field(default_factory=list)
+    fragilityDrivers: list[str] = Field(default_factory=list)
+    recommendations: list[RiskRecommendation] = Field(default_factory=list)
+    changeSummary: str = ""
+
+
+class RiskScanRequest(BaseModel):
+    graph: GraphPayload
+    previousAssessments: list[NodeRiskAssessment] = Field(default_factory=list)
+
+
+class RiskScanResponse(BaseModel):
+    assessments: list[NodeRiskAssessment] = Field(default_factory=list)
+
+
+class ParallelizationOption(BaseModel):
+    action: str
+    rationale: str
+    prerequisites: str
+    tradeoffs: str
+
+
+class ScenarioAssessment(BaseModel):
+    label: Literal["conservative", "base", "optimistic"]
+    outlook: str
+
+
+class DeepRiskAnalysis(BaseModel):
+    nodeId: str
+    scientificRisk: RiskLevel
+    executionRisk: RiskLevel
+    regulatoryRisk: RiskLevel
+    overallRisk: RiskLevel
+    fragility: RiskLevel
+    executiveSummary: str
+    detailedReasoning: str
+    scientificBreakdown: list[str] = Field(default_factory=list)
+    executionBreakdown: list[str] = Field(default_factory=list)
+    regulatoryBreakdown: list[str] = Field(default_factory=list)
+    fragilityBreakdown: list[str] = Field(default_factory=list)
+    mitigationStrategies: list[RiskRecommendation] = Field(default_factory=list)
+    parallelizationOptions: list[ParallelizationOption] = Field(default_factory=list)
+    scenarios: list[ScenarioAssessment] = Field(default_factory=list)
+
+
+class DeepRiskRequest(BaseModel):
+    graph: GraphPayload
+    nodeId: str
+    previousAssessment: NodeRiskAssessment | None = None
+
+
+class DeepRiskResponse(BaseModel):
+    analysis: DeepRiskAnalysis
+
+
 class ChatMessagePayload(BaseModel):
     role: Literal["user", "assistant"]
     content: str
@@ -603,6 +685,74 @@ def build_chat_graph_context(payload: ChatRequest) -> dict[str, object]:
     }
 
 
+def build_risk_graph_context(graph: GraphPayload) -> tuple[dict[str, object], ScheduleResponse]:
+    schedule = solve_schedule_response(graph)
+    context = build_chat_graph_context(ChatRequest(messages=[], graph=graph, schedule=schedule))
+    scheduled_by_node = {node.nodeId: node for node in schedule.nodes}
+
+    node_depths: dict[str, int] = {node.id: 0 for node in graph.nodes}
+    outgoing: dict[str, list[str]] = {node.id: [] for node in graph.nodes}
+    indegree: dict[str, int] = {node.id: 0 for node in graph.nodes}
+    active_node_ids = {node.id for node in graph.nodes if not node.completed}
+
+    for edge in graph.edges:
+        if edge.source in outgoing and edge.target in outgoing:
+            outgoing[edge.source].append(edge.target)
+            indegree[edge.target] += 1
+
+    queue = deque(node_id for node_id, count in indegree.items() if count == 0)
+    while queue:
+        current = queue.popleft()
+        for target in outgoing.get(current, []):
+            node_depths[target] = max(node_depths.get(target, 0), node_depths.get(current, 0) + 1)
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                queue.append(target)
+
+    downstream_counts: dict[str, int] = {}
+
+    def count_downstream(node_id: str) -> int:
+        if node_id in downstream_counts:
+            return downstream_counts[node_id]
+        reachable: set[str] = set()
+        local_queue = deque(outgoing.get(node_id, []))
+        while local_queue:
+            current = local_queue.popleft()
+            if current in reachable:
+                continue
+            reachable.add(current)
+            local_queue.extend(outgoing.get(current, []))
+        downstream_counts[node_id] = len(reachable)
+        return downstream_counts[node_id]
+
+    critical_path_node_ids = {
+        node.nodeId
+        for node in schedule.nodes
+        if node.nodeId in active_node_ids and abs(node.finish - schedule.makespan) < 1e-9
+    }
+
+    context["risk_focus_nodes"] = [
+        {
+            "node_id": node.id,
+            "title": node.title,
+            "completed": node.completed,
+            "schedule": (
+                {
+                    "start_week": scheduled_by_node[node.id].start,
+                    "finish_week": scheduled_by_node[node.id].finish,
+                }
+                if node.id in scheduled_by_node
+                else None
+            ),
+            "depth": node_depths.get(node.id, 0),
+            "downstream_dependency_count": count_downstream(node.id),
+            "critical_path_terminal": node.id in critical_path_node_ids,
+        }
+        for node in graph.nodes
+    ]
+    return context, schedule
+
+
 def choose_candidate_with_llm(
     baseline_cost: float,
     baseline_duration: float,
@@ -705,6 +855,400 @@ def choose_candidate_with_llm(
         ) from error
 
     return ProposalChoice.model_validate_json(response.output_text)
+
+
+def score_risks_with_llm(payload: RiskScanRequest) -> RiskScanResponse:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Risk scoring requires OPENAI_API_KEY to be set on the backend.",
+        )
+
+    active_nodes = [node for node in payload.graph.nodes if not node.completed]
+    if not active_nodes:
+        return RiskScanResponse(assessments=[])
+
+    graph_context, schedule = build_risk_graph_context(payload.graph)
+    client = OpenAI(api_key=api_key)
+    node_ids = {node.id for node in active_nodes}
+
+    try:
+        response = client.responses.create(
+            model=os.getenv("OPENAI_RISK_MODEL", "gpt-5.4-2026-03-05"),
+            instructions=(
+                "You evaluate preclinical program experiments for first-pass risk and program fragility. "
+                "Follow this policy strictly: score each uncompleted node on scientific risk, execution risk, regulatory risk, overall first-pass success likelihood, and fragility. "
+                "Use exactly these buckets: Very Low, Low, Medium, High, Very High. "
+                "Do not use numeric probabilities. "
+                "Risk means likelihood of failure, repetition, redesign, delay, or added cost. "
+                "Fragility means program-level impact if the node slips or fails, including critical path disruption, downstream dependency depth, rework cascades, replaceability, and hedgeability through parallelization. "
+                "Use the graph snapshot and derived schedule as the source of truth for program structure. "
+                "Be concise but specific. Avoid boilerplate. "
+                "Provide recommendations whenever overall risk is Medium or higher or fragility is Medium or higher. "
+                "When previous assessments are provided, include a short changeSummary that explains what changed and why; otherwise leave changeSummary empty. "
+                "Do not score completed nodes. "
+                "Return one assessment for every uncompleted node and only those nodes."
+            ),
+            input=json.dumps(
+                {
+                    "graph_context": graph_context,
+                    "schedule": schedule.model_dump(),
+                    "previous_assessments": [assessment.model_dump() for assessment in payload.previousAssessments],
+                }
+            ),
+            max_output_tokens=7000,
+            temperature=0.2,
+            store=False,
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "risk_scan",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "assessments": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "nodeId": {"type": "string"},
+                                        "scientificRisk": {
+                                            "type": "string",
+                                            "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
+                                        },
+                                        "executionRisk": {
+                                            "type": "string",
+                                            "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
+                                        },
+                                        "regulatoryRisk": {
+                                            "type": "string",
+                                            "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
+                                        },
+                                        "overallRisk": {
+                                            "type": "string",
+                                            "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
+                                        },
+                                        "fragility": {
+                                            "type": "string",
+                                            "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
+                                        },
+                                        "summary": {"type": "string"},
+                                        "scientificDrivers": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                        },
+                                        "executionDrivers": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                        },
+                                        "regulatoryDrivers": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                        },
+                                        "fragilityDrivers": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                        },
+                                        "recommendations": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "additionalProperties": False,
+                                                "properties": {
+                                                    "action": {"type": "string"},
+                                                    "targetRiskDimension": {
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "scientific",
+                                                            "execution",
+                                                            "regulatory",
+                                                            "fragility",
+                                                            "cross_cutting",
+                                                        ],
+                                                    },
+                                                    "expectedEffect": {"type": "string"},
+                                                    "costImplication": {
+                                                        "type": "string",
+                                                        "enum": ["Low", "Medium", "High"],
+                                                    },
+                                                    "timelineImpact": {
+                                                        "type": "string",
+                                                        "enum": ["reduces delay", "prevents rework", "neutral"],
+                                                    },
+                                                },
+                                                "required": [
+                                                    "action",
+                                                    "targetRiskDimension",
+                                                    "expectedEffect",
+                                                    "costImplication",
+                                                    "timelineImpact",
+                                                ],
+                                            },
+                                        },
+                                        "changeSummary": {"type": "string"},
+                                    },
+                                    "required": [
+                                        "nodeId",
+                                        "scientificRisk",
+                                        "executionRisk",
+                                        "regulatoryRisk",
+                                        "overallRisk",
+                                        "fragility",
+                                        "summary",
+                                        "scientificDrivers",
+                                        "executionDrivers",
+                                        "regulatoryDrivers",
+                                        "fragilityDrivers",
+                                        "recommendations",
+                                        "changeSummary",
+                                    ],
+                                },
+                            }
+                        },
+                        "required": ["assessments"],
+                    },
+                },
+                "verbosity": "low",
+            },
+        )
+    except AuthenticationError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Risk scoring could not authenticate with OpenAI: {error}",
+        ) from error
+    except APIError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Risk scoring failed while calling OpenAI: {error}",
+        ) from error
+
+    parsed = RiskScanResponse.model_validate_json(response.output_text)
+    assessments = [
+        assessment
+        for assessment in parsed.assessments
+        if assessment.nodeId in node_ids
+    ]
+    return RiskScanResponse(assessments=assessments)
+
+
+def deep_risk_analysis_with_llm(payload: DeepRiskRequest) -> DeepRiskResponse:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Deep risk reasoning requires OPENAI_API_KEY to be set on the backend.",
+        )
+
+    node_map = {node.id: node for node in payload.graph.nodes}
+    focus_node = node_map.get(payload.nodeId)
+    if not focus_node:
+        raise HTTPException(status_code=404, detail="The requested node was not found.")
+    if focus_node.completed:
+        raise HTTPException(
+            status_code=400,
+            detail="Deep risk reasoning is only available for uncompleted nodes.",
+        )
+
+    graph_context, schedule = build_risk_graph_context(payload.graph)
+    client = OpenAI(api_key=api_key)
+
+    try:
+        response = client.responses.create(
+            model=os.getenv("OPENAI_RISK_DEEP_MODEL", "gpt-5.4-2026-03-05"),
+            instructions=(
+                "You are producing a deep risk and fragility assessment for one preclinical program node. "
+                "Use the graph snapshot and derived schedule as the source of truth for program structure, dependencies, and timeline. "
+                "Provide a rigorous but decision-oriented analysis. "
+                "Do not reveal hidden chain-of-thought; instead provide an explicit, well-structured explanation of the main reasoning and evidence. "
+                "Use exactly these buckets for each category: Very Low, Low, Medium, High, Very High. "
+                "No numeric probabilities. "
+                "Fragility must focus on program-level impact if the node slips or fails, not just the chance of failure. "
+                "Mitigations should be concrete, and parallelization options should discuss whether earlier downstream work can be responsibly hedged. "
+                "If previous assessment data is provided, incorporate it where useful."
+            ),
+            input=json.dumps(
+                {
+                    "focus_node_id": payload.nodeId,
+                    "graph_context": graph_context,
+                    "schedule": schedule.model_dump(),
+                    "previous_assessment": payload.previousAssessment.model_dump()
+                    if payload.previousAssessment
+                    else None,
+                }
+            ),
+            max_output_tokens=5000,
+            temperature=0.2,
+            store=False,
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "deep_risk_analysis",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "analysis": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "nodeId": {"type": "string"},
+                                    "scientificRisk": {
+                                        "type": "string",
+                                        "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
+                                    },
+                                    "executionRisk": {
+                                        "type": "string",
+                                        "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
+                                    },
+                                    "regulatoryRisk": {
+                                        "type": "string",
+                                        "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
+                                    },
+                                    "overallRisk": {
+                                        "type": "string",
+                                        "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
+                                    },
+                                    "fragility": {
+                                        "type": "string",
+                                        "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
+                                    },
+                                    "executiveSummary": {"type": "string"},
+                                    "detailedReasoning": {"type": "string"},
+                                    "scientificBreakdown": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "executionBreakdown": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "regulatoryBreakdown": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "fragilityBreakdown": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "mitigationStrategies": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "additionalProperties": False,
+                                            "properties": {
+                                                "action": {"type": "string"},
+                                                "targetRiskDimension": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "scientific",
+                                                        "execution",
+                                                        "regulatory",
+                                                        "fragility",
+                                                        "cross_cutting",
+                                                    ],
+                                                },
+                                                "expectedEffect": {"type": "string"},
+                                                "costImplication": {
+                                                    "type": "string",
+                                                    "enum": ["Low", "Medium", "High"],
+                                                },
+                                                "timelineImpact": {
+                                                    "type": "string",
+                                                    "enum": ["reduces delay", "prevents rework", "neutral"],
+                                                },
+                                            },
+                                            "required": [
+                                                "action",
+                                                "targetRiskDimension",
+                                                "expectedEffect",
+                                                "costImplication",
+                                                "timelineImpact",
+                                            ],
+                                        },
+                                    },
+                                    "parallelizationOptions": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "additionalProperties": False,
+                                            "properties": {
+                                                "action": {"type": "string"},
+                                                "rationale": {"type": "string"},
+                                                "prerequisites": {"type": "string"},
+                                                "tradeoffs": {"type": "string"},
+                                            },
+                                            "required": [
+                                                "action",
+                                                "rationale",
+                                                "prerequisites",
+                                                "tradeoffs",
+                                            ],
+                                        },
+                                    },
+                                    "scenarios": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "additionalProperties": False,
+                                            "properties": {
+                                                "label": {
+                                                    "type": "string",
+                                                    "enum": ["conservative", "base", "optimistic"],
+                                                },
+                                                "outlook": {"type": "string"},
+                                            },
+                                            "required": ["label", "outlook"],
+                                        },
+                                    },
+                                },
+                                "required": [
+                                    "nodeId",
+                                    "scientificRisk",
+                                    "executionRisk",
+                                    "regulatoryRisk",
+                                    "overallRisk",
+                                    "fragility",
+                                    "executiveSummary",
+                                    "detailedReasoning",
+                                    "scientificBreakdown",
+                                    "executionBreakdown",
+                                    "regulatoryBreakdown",
+                                    "fragilityBreakdown",
+                                    "mitigationStrategies",
+                                    "parallelizationOptions",
+                                    "scenarios",
+                                ],
+                            }
+                        },
+                        "required": ["analysis"],
+                    },
+                },
+                "verbosity": "low",
+            },
+        )
+    except AuthenticationError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Deep risk reasoning could not authenticate with OpenAI: {error}",
+        ) from error
+    except APIError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Deep risk reasoning failed while calling OpenAI: {error}",
+        ) from error
+
+    parsed = DeepRiskResponse.model_validate_json(response.output_text)
+    if parsed.analysis.nodeId != payload.nodeId:
+        raise HTTPException(
+            status_code=502,
+            detail="Deep risk reasoning returned a mismatched node.",
+        )
+    return parsed
 
 
 def answer_chat_with_llm(payload: ChatRequest) -> ChatResponse:
@@ -1032,6 +1576,16 @@ def accelerate_propose(payload: AccelerateRequest) -> AccelerateResponse:
         baselinePlannedDuration=baseline_duration,
         candidateCount=len(candidates),
     )
+
+
+@app.post("/api/risk/scan", response_model=RiskScanResponse)
+def risk_scan(payload: RiskScanRequest) -> RiskScanResponse:
+    return score_risks_with_llm(payload)
+
+
+@app.post("/api/risk/deep", response_model=DeepRiskResponse)
+def risk_deep(payload: DeepRiskRequest) -> DeepRiskResponse:
+    return deep_risk_analysis_with_llm(payload)
 
 
 @app.post("/api/chat", response_model=ChatResponse)

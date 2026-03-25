@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
-import type { EditorMode, FlowNode, Personnel } from '../types/graph';
+import type { EditorMode, FlowNode, NodeRiskAssessment, Personnel } from '../types/graph';
 
 type NodeEditorProps = {
   mode: EditorMode;
   node: FlowNode | null;
   personnel: Personnel[];
+  riskAssessment: NodeRiskAssessment | null;
+  isRiskLoading: boolean;
+  riskError: string | null;
+  isDeepReasoningLoading: boolean;
   showParallelizationMultiplier: boolean;
   isConnectMode: boolean;
   isParallelizeMode: boolean;
@@ -24,12 +28,17 @@ type NodeEditorProps = {
   onStartConnect: () => void;
   onStartParallelize: () => void;
   onCancelConnect: () => void;
+  onDeepReasoning: () => void;
 };
 
 export function NodeEditor({
   mode,
   node,
   personnel,
+  riskAssessment,
+  isRiskLoading,
+  riskError,
+  isDeepReasoningLoading,
   showParallelizationMultiplier,
   isConnectMode,
   isParallelizeMode,
@@ -39,6 +48,7 @@ export function NodeEditor({
   onStartConnect,
   onStartParallelize,
   onCancelConnect,
+  onDeepReasoning,
 }: NodeEditorProps) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -319,6 +329,57 @@ export function NodeEditor({
 
       {isEditing ? (
         <div className="editor__footer">
+          {!node.completed ? (
+            <div className="editor__risk-summary">
+              <div className="editor__risk-header">
+                <div>
+                  <span className="editor__eyebrow">Risk Snapshot</span>
+                  <h3>Risk and Fragility</h3>
+                </div>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={onDeepReasoning}
+                  disabled={isDeepReasoningLoading}
+                >
+                  {isDeepReasoningLoading ? 'Reasoning...' : 'Deep Reasoning'}
+                </button>
+              </div>
+              {isRiskLoading ? <p className="editor__risk-text">Refreshing risk scores.</p> : null}
+              {riskError ? <p className="editor__risk-text">{riskError}</p> : null}
+              {riskAssessment ? (
+                <>
+                  <div className="editor__risk-grid">
+                    <div>
+                      <span>Overall Risk</span>
+                      <strong>{riskAssessment.overallRisk}</strong>
+                    </div>
+                    <div>
+                      <span>Fragility</span>
+                      <strong>{riskAssessment.fragility}</strong>
+                    </div>
+                    <div>
+                      <span>Scientific</span>
+                      <strong>{riskAssessment.scientificRisk}</strong>
+                    </div>
+                    <div>
+                      <span>Execution</span>
+                      <strong>{riskAssessment.executionRisk}</strong>
+                    </div>
+                    <div>
+                      <span>Regulatory</span>
+                      <strong>{riskAssessment.regulatoryRisk}</strong>
+                    </div>
+                  </div>
+                  <p className="editor__risk-text">{riskAssessment.summary}</p>
+                  {riskAssessment.changeSummary ? (
+                    <p className="editor__risk-change">{riskAssessment.changeSummary}</p>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="editor__footer-actions">
           <button type="button" className="button" onClick={onStartConnect}>
             Connect
           </button>
@@ -328,6 +389,7 @@ export function NodeEditor({
           <button type="button" className="button button--danger" onClick={onDelete}>
             Delete
           </button>
+          </div>
         </div>
       ) : null}
     </aside>

@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { AcceleratePanel } from './components/AcceleratePanel';
 import { Canvas } from './components/Canvas';
 import { ChatPanel } from './components/ChatPanel';
+import { DeepRiskPanel } from './components/DeepRiskPanel';
 import { NodeEditor } from './components/NodeEditor';
 import { ReviewPanel } from './components/ReviewPanel';
 import { Toolbar } from './components/Toolbar';
@@ -16,8 +17,12 @@ import type {
   AccelerationProposal,
   ChatMessage,
   ChatResponse,
+  DeepRiskAnalysis,
+  DeepRiskResponse,
   EditorMode,
   FlowNode,
+  NodeRiskAssessment,
+  RiskScanResponse,
   ReviewFinding,
   ReviewResponse,
   ScheduleResult,
@@ -29,6 +34,7 @@ import {
   hasIncomingParallelizedEdge,
 } from './utils/graph';
 import { formatMetric, getTotalCost } from './utils/metrics';
+import { getWarningLevel } from './utils/risk';
 import { STORAGE_KEY } from './utils/constants';
 
 type DragState = {
@@ -105,6 +111,12 @@ function App() {
   const [isReviewLoading, setIsReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [reviewFindings, setReviewFindings] = useState<ReviewFinding[]>([]);
+  const [riskAssessments, setRiskAssessments] = useState<NodeRiskAssessment[]>([]);
+  const [isRiskLoading, setIsRiskLoading] = useState(false);
+  const [riskError, setRiskError] = useState<string | null>(null);
+  const [deepRiskAnalysis, setDeepRiskAnalysis] = useState<DeepRiskAnalysis | null>(null);
+  const [deepRiskError, setDeepRiskError] = useState<string | null>(null);
+  const [isDeepRiskLoading, setIsDeepRiskLoading] = useState(false);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [suppressedCanvasClick, setSuppressedCanvasClick] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -117,9 +129,12 @@ function App() {
   const accelerateAbortRef = useRef<AbortController | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
   const reviewAbortRef = useRef<AbortController | null>(null);
+  const riskAbortRef = useRef<AbortController | null>(null);
+  const deepRiskAbortRef = useRef<AbortController | null>(null);
   const zoomRef = useRef(1);
   const viewportRefState = useRef({ x: 0, y: 0 });
   const shouldAutoCenterRef = useRef(true);
+  const previousRiskAssessmentsRef = useRef<NodeRiskAssessment[]>([]);
 
   const selectedNode = getNodeById(nodes, selectedNodeId);
   const totalCost = formatMetric(getTotalCost(nodes, edges));
@@ -170,6 +185,26 @@ function App() {
             .filter((edge) => edge.target === interactionMode.nodeId)
             .map((edge) => edge.source)
         : [];
+  const riskByNodeId = Object.fromEntries(
+    riskAssessments.map((assessment) => [assessment.nodeId, assessment]),
+  );
+  const warningByNodeId = Object.fromEntries(
+    riskAssessments.flatMap((assessment) => {
+      const warningLevel = getWarningLevel(assessment);
+      if (!warningLevel) {
+        return [];
+      }
+
+      return [[
+        assessment.nodeId,
+        {
+          level: warningLevel,
+          label: `Overall risk ${assessment.overallRisk}; fragility ${assessment.fragility}`,
+        },
+      ]];
+    }),
+  ) as Record<string, { level: 'warning' | 'critical'; label: string }>;
+  const selectedNodeRiskAssessment = selectedNodeId ? riskByNodeId[selectedNodeId] ?? null : null;
 
   useEffect(() => {
     zoomRef.current = zoom;
@@ -284,6 +319,18 @@ function App() {
 
     return () => window.clearTimeout(timeoutId);
   }, [highlightedNodeId]);
+
+  useEffect(() => {
+    previousRiskAssessmentsRef.current = riskAssessments;
+  }, [riskAssessments]);
+
+  useEffect(() => {
+    deepRiskAbortRef.current?.abort();
+    deepRiskAbortRef.current = null;
+    setIsDeepRiskLoading(false);
+    setDeepRiskAnalysis(null);
+    setDeepRiskError(null);
+  }, [selectedNodeId]);
 
   useLayoutEffect(() => {
     if (!shouldAutoCenterRef.current) {
@@ -887,6 +934,124 @@ function App() {
     }
   };
 
+  const requestRiskScan = async (
+    previousAssessments: NodeRiskAssessment[] = previousRiskAssessmentsRef.current,
+  ) => {
+    riskAbortRef.current?.abort();
+    const controller = new AbortController();
+    riskAbortRef.current = controller;
+    setIsRiskLoading(true);
+    setRiskError(null);
+
+    try {
+      const response = await fetch(`${SCHEDULER_API_BASE}/risk/scan`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          graph: schedulingInput,
+          previousAssessments,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { detail?: string }
+          | null;
+        throw new Error(payload?.detail ?? 'Risk scoring could not analyze the graph.');
+      }
+
+      const payload = (await response.json()) as RiskScanResponse;
+      setRiskAssessments(payload.assessments);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+
+      setRiskAssessments([]);
+      setRiskError(
+        error instanceof Error ? error.message : 'Risk scoring could not analyze the graph.',
+      );
+    } finally {
+      if (riskAbortRef.current === controller) {
+        riskAbortRef.current = null;
+      }
+      setIsRiskLoading(false);
+    }
+  };
+
+  const requestDeepRiskReasoning = async () => {
+    if (!selectedNodeId) {
+      return;
+    }
+
+    const node = getNodeById(nodes, selectedNodeId);
+    if (!node || node.completed) {
+      return;
+    }
+
+    deepRiskAbortRef.current?.abort();
+    const controller = new AbortController();
+    deepRiskAbortRef.current = controller;
+    setIsDeepRiskLoading(true);
+    setDeepRiskError(null);
+    setDeepRiskAnalysis(null);
+
+    try {
+      const response = await fetch(`${SCHEDULER_API_BASE}/risk/deep`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          graph: schedulingInput,
+          nodeId: selectedNodeId,
+          previousAssessment: selectedNodeRiskAssessment,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { detail?: string }
+          | null;
+        throw new Error(payload?.detail ?? 'Deep reasoning could not analyze this node.');
+      }
+
+      const payload = (await response.json()) as DeepRiskResponse;
+      setDeepRiskAnalysis(payload.analysis);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+
+      setDeepRiskError(
+        error instanceof Error ? error.message : 'Deep reasoning could not analyze this node.',
+      );
+    } finally {
+      if (deepRiskAbortRef.current === controller) {
+        deepRiskAbortRef.current = null;
+      }
+      setIsDeepRiskLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (nodes.length === 0) {
+      riskAbortRef.current?.abort();
+      riskAbortRef.current = null;
+      setRiskAssessments([]);
+      previousRiskAssessmentsRef.current = [];
+      setRiskError(null);
+      setIsRiskLoading(false);
+      return;
+    }
+
+    void requestRiskScan();
+  }, [schedulingSignature]);
+
   const handleImport = (value: string) => {
     const trimmedValue = value.trim();
     if (!trimmedValue) {
@@ -938,6 +1103,17 @@ function App() {
     setIsReviewLoading(false);
     setReviewError(null);
     setReviewFindings([]);
+    riskAbortRef.current?.abort();
+    riskAbortRef.current = null;
+    setRiskAssessments([]);
+    previousRiskAssessmentsRef.current = [];
+    setIsRiskLoading(false);
+    setRiskError(null);
+    deepRiskAbortRef.current?.abort();
+    deepRiskAbortRef.current = null;
+    setDeepRiskAnalysis(null);
+    setDeepRiskError(null);
+    setIsDeepRiskLoading(false);
     setHighlightedNodeId(null);
     shouldAutoCenterRef.current = true;
     setZoom(1);
@@ -1055,6 +1231,7 @@ function App() {
           nodes={nodes}
           edges={edges}
           scheduleByNodeId={scheduleByNodeId}
+          warningByNodeId={warningByNodeId}
           selectedNodeId={selectedNodeId}
           highlightedNodeId={highlightedNodeId}
           interactiveNodeIds={interactiveNodeIds}
@@ -1072,6 +1249,10 @@ function App() {
           mode={editorMode}
           node={selectedNode}
           personnel={personnel}
+          riskAssessment={selectedNodeRiskAssessment}
+          isRiskLoading={isRiskLoading}
+          riskError={riskError}
+          isDeepReasoningLoading={isDeepRiskLoading}
           showParallelizationMultiplier={showParallelizationMultiplier}
           isConnectMode={interactionMode?.type === 'connect'}
           isParallelizeMode={interactionMode?.type === 'parallelize'}
@@ -1089,6 +1270,22 @@ function App() {
             }
           }}
           onCancelConnect={() => setInteractionMode(null)}
+          onDeepReasoning={() => {
+            void requestDeepRiskReasoning();
+          }}
+        />
+        <DeepRiskPanel
+          analysis={deepRiskAnalysis}
+          isLoading={isDeepRiskLoading}
+          error={deepRiskError}
+          nodeTitle={selectedNode?.title ?? null}
+          onClose={() => {
+            deepRiskAbortRef.current?.abort();
+            deepRiskAbortRef.current = null;
+            setIsDeepRiskLoading(false);
+            setDeepRiskError(null);
+            setDeepRiskAnalysis(null);
+          }}
         />
         <ChatPanel
           isOpen={isChatOpen}

@@ -12,6 +12,8 @@ type FlowNodeProps = {
   node: FlowNodeType;
   edges: FlowEdge[];
   scheduleNode: ScheduledNode | null;
+  warningLevel: 'warning' | 'critical' | null;
+  warningLabel: string | null;
   selected: boolean;
   highlighted: boolean;
   connectable: boolean;
@@ -24,6 +26,8 @@ export function FlowNode({
   node,
   edges,
   scheduleNode,
+  warningLevel,
+  warningLabel,
   selected,
   highlighted,
   connectable,
@@ -69,11 +73,22 @@ export function FlowNode({
     >
       <div className="flow-node__header" style={{ height: NODE_HEADER_HEIGHT }}>
         <span>{node.title}</span>
-        {effectiveParallelizationMultiplier > 1 ? (
-          <span className="flow-node__multiplier">
-            {effectiveParallelizationMultiplier}x
-          </span>
-        ) : null}
+        <div className="flow-node__header-meta">
+          {warningLevel ? (
+            <span
+              className={`flow-node__warning-badge flow-node__warning-badge--${warningLevel}`}
+              title={warningLabel ?? undefined}
+              aria-label={warningLabel ?? undefined}
+            >
+              !
+            </span>
+          ) : null}
+          {effectiveParallelizationMultiplier > 1 ? (
+            <span className="flow-node__multiplier">
+              {effectiveParallelizationMultiplier}x
+            </span>
+          ) : null}
+        </div>
       </div>
       <div className="flow-node__body">
         <p>{node.content}</p>

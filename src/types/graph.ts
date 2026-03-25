@@ -59,6 +59,75 @@ export type AccelerationProposal = {
   fallbackUsed: boolean;
 };
 
+export type RiskLevel = 'Very Low' | 'Low' | 'Medium' | 'High' | 'Very High';
+
+export type RiskRecommendation = {
+  action: string;
+  targetRiskDimension:
+    | 'scientific'
+    | 'execution'
+    | 'regulatory'
+    | 'fragility'
+    | 'cross_cutting';
+  expectedEffect: string;
+  costImplication: 'Low' | 'Medium' | 'High';
+  timelineImpact: 'reduces delay' | 'prevents rework' | 'neutral';
+};
+
+export type NodeRiskAssessment = {
+  nodeId: string;
+  scientificRisk: RiskLevel;
+  executionRisk: RiskLevel;
+  regulatoryRisk: RiskLevel;
+  overallRisk: RiskLevel;
+  fragility: RiskLevel;
+  summary: string;
+  scientificDrivers: string[];
+  executionDrivers: string[];
+  regulatoryDrivers: string[];
+  fragilityDrivers: string[];
+  recommendations: RiskRecommendation[];
+  changeSummary: string;
+};
+
+export type RiskScanResponse = {
+  assessments: NodeRiskAssessment[];
+};
+
+export type ParallelizationOption = {
+  action: string;
+  rationale: string;
+  prerequisites: string;
+  tradeoffs: string;
+};
+
+export type ScenarioAssessment = {
+  label: 'conservative' | 'base' | 'optimistic';
+  outlook: string;
+};
+
+export type DeepRiskAnalysis = {
+  nodeId: string;
+  scientificRisk: RiskLevel;
+  executionRisk: RiskLevel;
+  regulatoryRisk: RiskLevel;
+  overallRisk: RiskLevel;
+  fragility: RiskLevel;
+  executiveSummary: string;
+  detailedReasoning: string;
+  scientificBreakdown: string[];
+  executionBreakdown: string[];
+  regulatoryBreakdown: string[];
+  fragilityBreakdown: string[];
+  mitigationStrategies: RiskRecommendation[];
+  parallelizationOptions: ParallelizationOption[];
+  scenarios: ScenarioAssessment[];
+};
+
+export type DeepRiskResponse = {
+  analysis: DeepRiskAnalysis;
+};
+
 export type AccelerateResponse = {
   proposal: AccelerationProposal | null;
   stopReason: string | null;

@@ -17,6 +17,7 @@ type CanvasProps = {
   nodes: FlowNodeType[];
   edges: FlowEdge[];
   scheduleByNodeId: Record<string, ScheduledNode>;
+  warningByNodeId: Record<string, { level: 'warning' | 'critical'; label: string }>;
   selectedNodeId: string | null;
   highlightedNodeId: string | null;
   interactiveNodeIds: string[];
@@ -38,6 +39,7 @@ export function Canvas({
   nodes,
   edges,
   scheduleByNodeId,
+  warningByNodeId,
   selectedNodeId,
   highlightedNodeId,
   interactiveNodeIds,
@@ -87,6 +89,8 @@ export function Canvas({
                 node={node}
                 edges={edges}
                 scheduleNode={scheduleByNodeId[node.id] ?? null}
+                warningLevel={warningByNodeId[node.id]?.level ?? null}
+                warningLabel={warningByNodeId[node.id]?.label ?? null}
                 selected={selectedNodeId === node.id}
                 highlighted={highlightedNodeId === node.id}
                 connectable={interactiveNodeIds.includes(node.id)}
