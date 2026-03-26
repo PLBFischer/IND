@@ -128,6 +128,7 @@ describe('PathwayPanel', () => {
         queryResponse={null}
         onClose={vi.fn()}
         onQuery={vi.fn()}
+        onClearQuery={vi.fn()}
       />,
     );
 
@@ -147,6 +148,7 @@ describe('PathwayPanel', () => {
         queryResponse={null}
         onClose={vi.fn()}
         onQuery={vi.fn()}
+        onClearQuery={vi.fn()}
       />,
     );
 
@@ -160,7 +162,43 @@ describe('PathwayPanel', () => {
 
     expect(screen.getByText('activates')).toBeInTheDocument();
     expect(screen.getByText('Confidence 90% · strong evidence')).toBeInTheDocument();
+    expect(screen.getByText('Demo paper')).toBeInTheDocument();
+    expect(screen.getByText('in vivo')).toBeInTheDocument();
+    expect(screen.getByText('current paper direct')).toBeInTheDocument();
+    expect(screen.getByText('Results')).toBeInTheDocument();
+    expect(screen.getByText('In vivo challenge model')).toBeInTheDocument();
+    expect(screen.getByText('TNF increased NF-kB activation in vivo.')).toBeInTheDocument();
     expect(screen.getByText('Activates / increases')).toBeInTheDocument();
     expect(screen.getByText('Inhibits / decreases')).toBeInTheDocument();
+  });
+
+  it('shows a clear-query control when a query response is active', () => {
+    render(
+      <PathwayPanel
+        node={node}
+        isOpen
+        isQuerying={false}
+        queryError={null}
+        queryResponse={{
+          query_status: 'ok',
+          query_plan: {
+            query_intent: 'direct_relation',
+            search_mode: 'direct_only',
+            max_hops: 1,
+          },
+          resolved_entities: [],
+          subgraph_entity_ids: ['E1', 'E2'],
+          subgraph_relation_ids: ['R1'],
+          evidence_cards: [],
+          answer_summary: 'Retrieved 1 relation.',
+          notes: [],
+        }}
+        onClose={vi.fn()}
+        onQuery={vi.fn()}
+        onClearQuery={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Show Full Network' })).toBeInTheDocument();
   });
 });

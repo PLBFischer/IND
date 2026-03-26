@@ -107,6 +107,24 @@ export const getRelationEvidence = (
   return graph.evidence_items.filter((item) => evidenceIds.has(item.evidence_id));
 };
 
+export const getBestRelationEvidence = (
+  graph: PathwayGraph,
+  relation: AggregatedRelation,
+) =>
+  [...getRelationEvidence(graph, relation)].sort((left, right) => {
+    const leftScore =
+      (left.is_from_current_paper ? 100 : 0) +
+      (left.is_primary_result ? 10 : 0) +
+      left.confidence;
+    const rightScore =
+      (right.is_from_current_paper ? 100 : 0) +
+      (right.is_primary_result ? 10 : 0) +
+      right.confidence;
+    return rightScore - leftScore;
+  })[0] ?? null;
+
+export const formatPathwayEvidenceModality = (value: string) => value.replace(/_/g, ' ');
+
 const STRONG_SUPPORT_CLASSES = new Set<SupportClass>([
   'current_paper_direct',
   'current_paper_indirect',

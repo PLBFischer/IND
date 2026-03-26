@@ -2091,6 +2091,30 @@ button {
   line-height: 1.5;
 }
 
+.pathway-panel__edge-tooltip-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pathway-panel__edge-tooltip-badges span {
+  border: 1px solid var(--border);
+  background: #f3f4f5;
+  padding: 2px 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pathway-panel__edge-tooltip-paper {
+  font-weight: 600;
+  color: var(--text) !important;
+}
+
+.pathway-panel__edge-tooltip-more {
+  font-size: 11px !important;
+}
+
 .pathway-panel__sidebar {
   display: flex;
   flex-direction: column;

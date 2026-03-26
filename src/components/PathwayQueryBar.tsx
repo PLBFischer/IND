@@ -2,7 +2,9 @@ import { useState } from 'react';
 
 type PathwayQueryBarProps = {
   isLoading: boolean;
+  hasActiveQuery: boolean;
   onSubmit: (query: string) => void;
+  onClear: () => void;
 };
 
 const EXAMPLE_PLACEHOLDERS = [
@@ -13,7 +15,12 @@ const EXAMPLE_PLACEHOLDERS = [
   'What is missing to support this pathway claim?',
 ];
 
-export function PathwayQueryBar({ isLoading, onSubmit }: PathwayQueryBarProps) {
+export function PathwayQueryBar({
+  isLoading,
+  hasActiveQuery,
+  onSubmit,
+  onClear,
+}: PathwayQueryBarProps) {
   const [query, setQuery] = useState('');
   const placeholder = EXAMPLE_PLACEHOLDERS[0];
 
@@ -38,6 +45,11 @@ export function PathwayQueryBar({ isLoading, onSubmit }: PathwayQueryBarProps) {
       <button type="submit" className="button button--primary" disabled={isLoading}>
         {isLoading ? 'Querying...' : 'Query'}
       </button>
+      {hasActiveQuery ? (
+        <button type="button" className="button button--ghost" onClick={onClear}>
+          Show Full Network
+        </button>
+      ) : null}
     </form>
   );
 }

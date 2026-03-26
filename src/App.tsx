@@ -1351,6 +1351,24 @@ function App() {
     }
   };
 
+  const clearPathwayQuery = () => {
+    setPathwayQueryError(null);
+    if (!selectedPathwayNode) {
+      return;
+    }
+
+    setNodes((current) =>
+      current.map((node) =>
+        node.id === selectedPathwayNode.id && isPathwayNode(node)
+          ? {
+              ...node,
+              latestQueryResponse: null,
+            }
+          : node,
+      ),
+    );
+  };
+
   useEffect(() => {
     if (nodes.length === 0) {
       riskAbortRef.current?.abort();
@@ -1677,6 +1695,7 @@ function App() {
           onQuery={(query) => {
             void requestPathwayQuery(query);
           }}
+          onClearQuery={clearPathwayQuery}
         />
         <AcceleratePanel
           proposal={accelerateProposal}

@@ -6,8 +6,11 @@ import type { PathwayQueryResponse } from '../types/pathway';
 import {
   PATHWAY_INTERACTION_LEGEND,
   computePathwayLayout,
+  formatPathwayEvidenceModality,
+  getBestRelationEvidence,
   getEntityNameById,
   getRelationById,
+  getRelationEvidence,
   getPathwayRelationInteractionClass,
   getPathwayRelationMarkerId,
   getPathwayRelationTypeLabel,
@@ -72,6 +75,7 @@ type PathwayPanelProps = {
   queryResponse: PathwayQueryResponse | null;
   onClose: () => void;
   onQuery: (query: string) => void;
+  onClearQuery: () => void;
 };
 
 export function PathwayPanel({
@@ -82,6 +86,7 @@ export function PathwayPanel({
   queryResponse,
   onClose,
   onQuery,
+  onClearQuery,
 }: PathwayPanelProps) {
   const [includeNondefaultRelations, setIncludeNondefaultRelations] = useState(false);
   const [includeStructuralRelations, setIncludeStructuralRelations] = useState(true);
@@ -93,6 +98,7 @@ export function PathwayPanel({
   const [viewport, setViewport] = useState({ x: 0, y: 0 });
   const [nodePositions, setNodePositions] = useState<Record<string, Point>>({});
   const [edgeTooltip, setEdgeTooltip] = useState<EdgeTooltipState | null>(null);
+  const [transientQueryMessage, setTransientQueryMessage] = useState<string | null>(null);
   const networkShellRef = useRef<HTMLDivElement | null>(null);
   const networkSvgRef = useRef<SVGSVGElement | null>(null);
   const interactionRef = useRef<InteractionState>(null);
@@ -171,6 +177,25 @@ export function PathwayPanel({
     setViewport({ x: 0, y: 0 });
     setEdgeTooltip(null);
   }, [node?.id]);
+
+  useEffect(() => {
+    if (!queryError && (!queryResponse || queryResponse.query_status === 'ok')) {
+      return;
+    }
+
+    const message =
+      queryError ??
+      queryResponse?.answer_summary ??
+      'The query could not be fulfilled with the current pathway graph.';
+    setTransientQueryMessage(message);
+    const timeoutId = window.setTimeout(() => {
+      setTransientQueryMessage(null);
+    }, 3500);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [queryError, queryResponse]);
 
   useEffect(() => {
     setNodePositions((current) => {
@@ -502,16 +527,13 @@ export function PathwayPanel({
         </label>
       </div>
 
-      <PathwayQueryBar isLoading={isQuerying} onSubmit={onQuery} />
-      {queryError ? <p className="pathway-panel__error">{queryError}</p> : null}
-      {queryResponse ? (
-        <div className="pathway-panel__query-summary">
-          <strong>{queryResponse.answer_summary}</strong>
-          {queryResponse.notes.map((note) => (
-            <p key={note}>{note}</p>
-          ))}
-        </div>
-      ) : null}
+      <PathwayQueryBar
+        isLoading={isQuerying}
+        hasActiveQuery={Boolean(queryResponse)}
+        onSubmit={onQuery}
+        onClear={onClearQuery}
+      />
+      {transientQueryMessage ? <p className="pathway-panel__error">{transientQueryMessage}</p> : null}
 
       <div className="pathway-panel__content">
         <div ref={networkShellRef} className="pathway-panel__network-shell">
@@ -668,19 +690,47 @@ export function PathwayPanel({
             </g>
           </svg>
           {edgeTooltip ? (
-            <div
-              className="pathway-panel__edge-tooltip"
-              style={{ left: edgeTooltip.x, top: edgeTooltip.y }}
-            >
-              <strong>{getPathwayRelationTypeLabel(edgeTooltip.relation.relation_type)}</strong>
-              <span>{edgeTooltip.relation.summary}</span>
-              <p>
-                Confidence {Math.round(edgeTooltip.relation.confidence * 100)}%
-                {edgeTooltip.relation.evidence_strength
-                  ? ` · ${edgeTooltip.relation.evidence_strength} evidence`
-                  : ''}
-              </p>
-            </div>
+            (() => {
+              const bestEvidence = getBestRelationEvidence(graph, edgeTooltip.relation);
+              const evidenceCount = getRelationEvidence(graph, edgeTooltip.relation).length;
+
+              return (
+                <div
+                  className="pathway-panel__edge-tooltip"
+                  style={{ left: edgeTooltip.x, top: edgeTooltip.y }}
+                >
+                  <strong>{getPathwayRelationTypeLabel(edgeTooltip.relation.relation_type)}</strong>
+                  <span>{edgeTooltip.relation.summary}</span>
+                  <p>
+                    Confidence {Math.round(edgeTooltip.relation.confidence * 100)}%
+                    {edgeTooltip.relation.evidence_strength
+                      ? ` · ${edgeTooltip.relation.evidence_strength} evidence`
+                      : ''}
+                  </p>
+                  {bestEvidence ? (
+                    <>
+                      <div className="pathway-panel__edge-tooltip-badges">
+                        <span>{formatPathwayEvidenceModality(bestEvidence.evidence_modality)}</span>
+                        <span>{bestEvidence.support_class.replace(/_/g, ' ')}</span>
+                        <span>{bestEvidence.section}</span>
+                      </div>
+                      <p className="pathway-panel__edge-tooltip-paper">
+                        {bestEvidence.paper_title ?? graph.paper_metadata.title}
+                      </p>
+                      {bestEvidence.experiment_context ? (
+                        <p>{bestEvidence.experiment_context}</p>
+                      ) : null}
+                      <p>{bestEvidence.supporting_snippet}</p>
+                      {evidenceCount > 1 ? (
+                        <p className="pathway-panel__edge-tooltip-more">
+                          {evidenceCount} supporting evidence items linked to this edge
+                        </p>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+              );
+            })()
           ) : null}
         </div>
 
