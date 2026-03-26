@@ -4,10 +4,13 @@ import json
 import os
 import re
 import ssl
+import subprocess
+import time
 from collections import deque
 from copy import deepcopy
 from decimal import Decimal
 from html import unescape
+from pathlib import Path
 from typing import Any, Literal
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
@@ -85,6 +88,25 @@ BlockerPriority = Literal["critical", "supporting", "exploratory"]
 
 TERMINAL_STATUSES = {"completed", "failed", "canceled"}
 BLOCKER_PRIORITY_ORDER = {"critical": 0, "supporting": 1, "exploratory": 2}
+
+
+def load_local_env_file() -> None:
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("'").strip('"')
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_local_env_file()
 
 
 def normalize_string_list(value: Any) -> list[str]:
@@ -2103,6 +2125,29 @@ def build_ncbi_url(base_url: str, params: dict[str, str]) -> str:
     return f"{base_url}?{urlencode(request_params)}"
 
 
+def should_use_curl_fallback(url: str, error: HTTPError) -> bool:
+    if error.code != 403:
+        return False
+
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
+    return (
+        host in {"pubmed.ncbi.nlm.nih.gov", "pmc.ncbi.nlm.nih.gov"}
+        and not path.endswith(".fcgi")
+    )
+
+
+def fetch_url_bytes_with_curl(url: str) -> bytes:
+    result = subprocess.run(
+        ["curl", "-fsSL", "--max-time", "20", url],
+        check=True,
+        capture_output=True,
+        text=False,
+    )
+    return result.stdout
+
+
 def fetch_url_bytes(url: str, *, headers: dict[str, str] | None = None) -> bytes:
     request = Request(url, headers=build_ncbi_request_headers(headers))
 
@@ -2116,8 +2161,29 @@ def fetch_url_bytes(url: str, *, headers: dict[str, str] | None = None) -> bytes
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
 
-    with urlopen(request, timeout=20, context=ssl_context) as response:
-        return response.read()
+    retryable_status_codes = {429, 500, 502, 503, 504}
+    for attempt in range(3):
+        try:
+            with urlopen(request, timeout=20, context=ssl_context) as response:
+                return response.read()
+        except HTTPError as error:
+            if should_use_curl_fallback(url, error):
+                try:
+                    return fetch_url_bytes_with_curl(url)
+                except subprocess.CalledProcessError:
+                    pass
+
+            if error.code not in retryable_status_codes or attempt == 2:
+                raise
+
+            retry_after = error.headers.get("Retry-After") if error.headers else None
+            try:
+                delay_seconds = float(retry_after) if retry_after else float(attempt + 1)
+            except ValueError:
+                delay_seconds = float(attempt + 1)
+            time.sleep(delay_seconds)
+
+    raise RuntimeError(f"Failed to fetch URL after retries: {url}")
 
 
 def fetch_url_text(url: str, *, headers: dict[str, str] | None = None) -> str:
@@ -2182,6 +2248,51 @@ def extract_text_from_bioc_payload(payload: Any) -> str:
 
 
 def resolve_pubmed_id_to_pmcid(pubmed_id: str) -> str | None:
+    elink_url = build_ncbi_url(
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi",
+        {"dbfrom": "pubmed", "db": "pmc", "id": pubmed_id, "retmode": "xml"},
+    )
+    elink_xml = fetch_url_text(
+        elink_url,
+        headers={"Accept": "application/xml,text/xml;q=0.9,*/*;q=0.1"},
+    )
+    try:
+        root = ElementTree.fromstring(elink_xml)
+    except ElementTree.ParseError:
+        root = None
+
+    pmc_record_ids: list[str] = []
+    if root is not None:
+        pmc_record_ids = [
+            node.text.strip()
+            for node in root.findall(".//LinkSetDb[DbTo='pmc']/Link/Id")
+            if node.text and node.text.strip()
+        ]
+
+    if pmc_record_ids:
+        summary_url = build_ncbi_url(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
+            {"db": "pmc", "id": ",".join(pmc_record_ids), "retmode": "json"},
+        )
+        payload = fetch_url_json(summary_url, headers={"Accept": "application/json"})
+        if isinstance(payload, dict):
+            result = payload.get("result")
+            if isinstance(result, dict):
+                for record_id in pmc_record_ids:
+                    record = result.get(record_id)
+                    if not isinstance(record, dict):
+                        continue
+                    article_ids = record.get("articleids")
+                    if not isinstance(article_ids, list):
+                        continue
+                    for article_id in article_ids:
+                        if not isinstance(article_id, dict):
+                            continue
+                        if article_id.get("idtype") == "pmcid":
+                            pmcid = article_id.get("value")
+                            if isinstance(pmcid, str) and pmcid.strip():
+                                return pmcid.strip().upper()
+
     idconv_url = build_ncbi_url(
         "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/",
         {"ids": pubmed_id, "format": "json"},
@@ -2440,6 +2551,38 @@ def parse_section_chunks(
     return chunks, seen_sections
 
 
+def select_extraction_chunks(chunks: list[PaperChunk]) -> tuple[list[PaperChunk], bool]:
+    section_priority = {
+        "Results": 0,
+        "Abstract": 1,
+        "Discussion": 2,
+        "Introduction": 3,
+        "Unknown": 4,
+        "Methods": 5,
+    }
+    ranked = sorted(
+        enumerate(chunks),
+        key=lambda item: (section_priority.get(item[1].section, 99), item[0]),
+    )
+
+    max_chunks = int(os.getenv("PATHWAY_EXTRACTION_MAX_CHUNKS", "500"))
+    max_chars = int(os.getenv("PATHWAY_EXTRACTION_MAX_CHARS", "500000"))
+
+    selected: list[PaperChunk] = []
+    total_chars = 0
+    for _, chunk in ranked:
+        if len(selected) >= max_chunks:
+            break
+        if selected and total_chars + len(chunk.text) > max_chars:
+            continue
+        selected.append(chunk)
+        total_chars += len(chunk.text)
+
+    selected_ids = {chunk.chunk_id for chunk in selected}
+    in_order = [chunk for chunk in chunks if chunk.chunk_id in selected_ids]
+    return in_order, len(in_order) < len(chunks)
+
+
 def require_openai_client(feature_name: str) -> OpenAI:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -2448,6 +2591,31 @@ def require_openai_client(feature_name: str) -> OpenAI:
             detail=f"{feature_name} requires OPENAI_API_KEY to be set on the backend.",
         )
     return OpenAI(api_key=api_key)
+
+
+def normalize_openai_schema(value: Any) -> Any:
+    if isinstance(value, dict):
+        normalized = {key: normalize_openai_schema(child) for key, child in value.items()}
+
+        properties = normalized.get("properties")
+        if isinstance(properties, dict):
+            normalized["required"] = list(properties.keys())
+            normalized["additionalProperties"] = False
+
+        for key in ("$defs", "definitions"):
+            nested_definitions = normalized.get(key)
+            if isinstance(nested_definitions, dict):
+                normalized[key] = {
+                    nested_key: normalize_openai_schema(nested_value)
+                    for nested_key, nested_value in nested_definitions.items()
+                }
+
+        return normalized
+
+    if isinstance(value, list):
+        return [normalize_openai_schema(item) for item in value]
+
+    return value
 
 
 def call_pathway_model(
@@ -2459,14 +2627,16 @@ def call_pathway_model(
     instructions: str,
     input_payload: dict[str, object],
     response_model: type[BaseModel],
+    max_output_tokens: int = 7000,
 ) -> BaseModel:
     client = require_openai_client(feature_name)
+    response_schema = normalize_openai_schema(response_model.model_json_schema())
     try:
         response = client.responses.create(
             model=os.getenv(model_env, default_model),
             instructions=instructions,
             input=json.dumps(input_payload),
-            max_output_tokens=7000,
+            max_output_tokens=max_output_tokens,
             temperature=0.1,
             store=False,
             text={
@@ -2474,7 +2644,7 @@ def call_pathway_model(
                     "type": "json_schema",
                     "name": schema_name,
                     "strict": True,
-                    "schema": response_model.model_json_schema(),
+                    "schema": response_schema,
                 },
                 "verbosity": "low",
             },
@@ -2552,7 +2722,9 @@ def build_pathway_graph(
 
 
 def evidence_supports_default_admission(evidence: EvidenceItem) -> bool:
-    if evidence.support_class not in {"current_paper_direct", "current_paper_indirect"}:
+    if not evidence.is_from_current_paper:
+        return False
+    if not evidence.is_primary_result:
         return False
     if not is_results_bearing_section(evidence.section):
         return False
@@ -2563,6 +2735,18 @@ def evidence_supports_default_admission(evidence: EvidenceItem) -> bool:
     if evidence.confidence < 0.65:
         return False
     if contains_vague_language(evidence.supporting_snippet):
+        return False
+
+    has_direct_support_class = evidence.support_class in {
+        "current_paper_direct",
+        "current_paper_indirect",
+    }
+    has_observed_effect_shape = bool(
+        (evidence.intervention or "").strip()
+        or (evidence.measured_endpoint or "").strip()
+        or evidence.effect_direction != "unknown"
+    )
+    if not has_direct_support_class and not has_observed_effect_shape:
         return False
     return True
 
@@ -2591,8 +2775,18 @@ def apply_pathway_admission_policy(graph: PathwayGraph) -> PathwayGraph:
             for evidence_id in relation.evidence_ids
             if evidence_id in evidence_by_id
         ]
-        if any(evidence_supports_default_admission(item) for item in supporting_evidence):
-            admitted.append(relation)
+        admissible_evidence = [
+            item for item in supporting_evidence if evidence_supports_default_admission(item)
+        ]
+        if admissible_evidence:
+            relation_payload = relation.model_dump()
+            if relation.support_class not in {"current_paper_direct", "current_paper_indirect"}:
+                relation_payload["support_class"] = "current_paper_direct"
+            if relation.mechanistic_status in {None, "interpretive", "speculative", "conflicting"}:
+                relation_payload["mechanistic_status"] = "indirect"
+            if relation.evidence_strength in {None, "weak"}:
+                relation_payload["evidence_strength"] = "moderate"
+            admitted.append(AggregatedRelation(**relation_payload))
             continue
 
         relation_payload = relation.model_dump()
@@ -2779,15 +2973,23 @@ def build_pathway_graph_with_llm(payload: PathwayBuildRequest) -> PathwayBuildRe
             continue
 
         chunks, seen_sections = parse_section_chunks(source_text, source.sourceId, summary.title)
+        extraction_chunks, was_capped = select_extraction_chunks(chunks)
         summary.sectionCount = len(seen_sections)
         summary.chunkCount = len(chunks)
+        if was_capped:
+            warning = (
+                f"Extraction input for {summary.label} was capped to {len(extraction_chunks)} of {len(chunks)} "
+                "chunks, prioritizing results-bearing sections to stay within model limits."
+            )
+            summary.warnings.append(warning)
+            warnings.append(warning)
         parsed_sources.append(summary)
         all_chunks.extend(chunks)
 
         extraction = call_pathway_model(
             feature_name="Pathway build",
             model_env="OPENAI_PATHWAY_EXTRACTION_MODEL",
-            default_model="gpt-5.4-2026-03-05",
+            default_model="gpt-5.4-mini-2026-03-17",
             schema_name="pathway_extraction",
             instructions=EXTRACTION_SYSTEM_PROMPT,
             input_payload={
@@ -2795,9 +2997,10 @@ def build_pathway_graph_with_llm(payload: PathwayBuildRequest) -> PathwayBuildRe
                 "pubmed_id": summary.pubmedId,
                 "pmcid": summary.pmcid,
                 "doi": None,
-                "json_chunks": [chunk.model_dump() for chunk in chunks],
+                "json_chunks": [chunk.model_dump() for chunk in extraction_chunks],
             },
             response_model=ExtractionPassResult,
+            max_output_tokens=12000,
         )
         extraction_results.append(
             attach_source_metadata_to_extraction(
@@ -3026,6 +3229,25 @@ def get_query_relations(graph: PathwayGraph, plan: PathwayQueryPlan) -> list[Agg
     return [relation for relation in relations if relation_matches_query_plan(relation, graph, plan)]
 
 
+def find_direct_relations(
+    relations: list[AggregatedRelation],
+    source_entity_id: str,
+    target_entity_id: str,
+) -> list[AggregatedRelation]:
+    return [
+        relation
+        for relation in relations
+        if (
+            relation.source_entity_id == source_entity_id
+            and relation.target_entity_id == target_entity_id
+        )
+        or (
+            relation.source_entity_id == target_entity_id
+            and relation.target_entity_id == source_entity_id
+        )
+    ]
+
+
 def build_evidence_cards(
     graph: PathwayGraph,
     relation_ids: list[str],
@@ -3146,6 +3368,10 @@ def execute_pathway_query_plan(
         )
 
     relations = get_query_relations(graph, plan)
+    relaxed_relations = relations
+    if plan.query_intent in {"direct_relation", "evidence_for_relation"} and not plan.include_nondefault_relations:
+        relaxed_plan = plan.model_copy(update={"include_nondefault_relations": True})
+        relaxed_relations = get_query_relations(graph, relaxed_plan)
     relation_ids: list[str] = []
     entity_ids: list[str] = []
     notes: list[str] = []
@@ -3187,12 +3413,11 @@ def execute_pathway_query_plan(
             )
 
         if plan.query_intent in {"direct_relation", "evidence_for_relation"} or plan.search_mode == "direct_only":
-            direct_relations = [
-                relation
-                for relation in relations
-                if relation.source_entity_id == source_match.matched_entity_id
-                and relation.target_entity_id == target_match.matched_entity_id
-            ]
+            direct_relations = find_direct_relations(
+                relaxed_relations,
+                source_match.matched_entity_id,
+                target_match.matched_entity_id,
+            )
             if not direct_relations:
                 return PathwayQueryResponse(
                     query_status="no_supported_path",
@@ -3210,6 +3435,8 @@ def execute_pathway_query_plan(
                 )
             relation_ids = [relation.relation_id for relation in direct_relations]
             entity_ids = [source_match.matched_entity_id, target_match.matched_entity_id]
+            if any(relation.relation_id in {item.relation_id for item in graph.nondefault_relations} for relation in direct_relations):
+                notes.append("Showing nondefault evidence because no default direct edge fully covered the pair.")
         else:
             entity_path, relation_path = execute_path_search(
                 graph,

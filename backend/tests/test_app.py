@@ -1,3 +1,4 @@
+import subprocess
 from urllib.error import HTTPError
 
 from pydantic import ValidationError
@@ -15,6 +16,7 @@ from backend.app import (
     execute_pathway_query_plan,
     extract_pubmed_id_from_value,
     extract_pmcid_from_pubmed_html,
+    fetch_url_text,
     resolve_source_text,
     solve_schedule_response,
 )
@@ -524,6 +526,22 @@ def test_results_backed_claims_remain_in_default_relations() -> None:
     assert relation.support_class == "current_paper_direct"
 
 
+def test_results_backed_claims_are_rescued_from_overly_conservative_labels() -> None:
+    graph = make_test_pathway_graph()
+    graph.evidence_items[0].support_class = "author_interpretation"
+    graph.evidence_items[0].mechanistic_status = "interpretive"
+    graph.default_relations[0].support_class = "author_interpretation"
+    graph.default_relations[0].mechanistic_status = "interpretive"
+    graph.default_relations[0].evidence_strength = "weak"
+
+    filtered = apply_pathway_admission_policy(graph)
+    relation = next(relation for relation in filtered.default_relations if relation.relation_id == "R_results")
+
+    assert relation.support_class == "current_paper_direct"
+    assert relation.mechanistic_status == "indirect"
+    assert relation.evidence_strength == "moderate"
+
+
 def test_sanity_report_flags_complex_membership_and_modified_form_structure() -> None:
     graph = make_test_pathway_graph()
     report = build_deterministic_sanity_report(graph)
@@ -598,6 +616,84 @@ def test_query_plan_schema_and_execution_return_expected_subgraph() -> None:
     assert response.evidence_cards[0].evidence_id == "EV_results"
 
 
+def test_direct_relation_query_matches_bidirectionally() -> None:
+    plan = PathwayQueryPlan.model_validate(
+        {
+            "query_intent": "direct_relation",
+            "source_entity_text": "D",
+            "target_entity_text": "B:C complex",
+            "entity_texts": [],
+            "search_mode": "direct_only",
+            "max_hops": 2,
+            "path_validation_mode": "rank_by_match_density",
+            "allowed_relation_types": [],
+            "allowed_entity_types": [],
+            "include_structural_relations": True,
+            "include_nondefault_relations": False,
+            "evidence_filter": {
+                "modalities": [],
+                "support_classes": [],
+                "min_confidence": 0.0,
+                "require_all_edges_meet_filter": False,
+                "include_background": False,
+            },
+            "render_instructions": {
+                "show_only_subgraph": True,
+                "highlight_entity_types": [],
+                "highlight_relation_types": [],
+            },
+            "answer_mode": "subgraph_and_summary",
+        }
+    )
+
+    response = execute_pathway_query_plan(make_test_pathway_graph(), plan)
+
+    assert response.query_status == "ok"
+    assert response.subgraph_relation_ids == ["R_results"]
+
+
+def test_direct_relation_query_includes_nondefault_when_needed() -> None:
+    graph = make_test_pathway_graph()
+    relation = graph.default_relations.pop(0)
+    relation.relation_id = "R_results_nondefault"
+    graph.nondefault_relations.append(relation)
+
+    plan = PathwayQueryPlan.model_validate(
+        {
+            "query_intent": "direct_relation",
+            "source_entity_text": "B:C complex",
+            "target_entity_text": "D",
+            "entity_texts": [],
+            "search_mode": "direct_only",
+            "max_hops": 2,
+            "path_validation_mode": "rank_by_match_density",
+            "allowed_relation_types": [],
+            "allowed_entity_types": [],
+            "include_structural_relations": True,
+            "include_nondefault_relations": False,
+            "evidence_filter": {
+                "modalities": [],
+                "support_classes": [],
+                "min_confidence": 0.0,
+                "require_all_edges_meet_filter": False,
+                "include_background": False,
+            },
+            "render_instructions": {
+                "show_only_subgraph": True,
+                "highlight_entity_types": [],
+                "highlight_relation_types": [],
+            },
+            "answer_mode": "subgraph_and_summary",
+        }
+    )
+
+    response = execute_pathway_query_plan(graph, plan)
+
+    assert response.query_status == "ok"
+    assert response.subgraph_relation_ids == ["R_results_nondefault"]
+    assert any("nondefault" in note for note in response.notes)
+
+
 def test_sanity_report_schema_validates() -> None:
     report = PathwaySanityReport.model_validate(
         {
@@ -639,6 +735,34 @@ def test_extract_pubmed_id_from_value_reads_pubmed_url() -> None:
     assert extract_pubmed_id_from_value("https://pubmed.ncbi.nlm.nih.gov/41585874/") == "41585874"
 
 
+def test_fetch_url_text_falls_back_to_curl_for_blocked_ncbi_html(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_urlopen(*_args, **_kwargs):
+        raise HTTPError(
+            "https://pmc.ncbi.nlm.nih.gov/articles/PMC5038198/",
+            403,
+            "Forbidden",
+            hdrs=None,
+            fp=None,
+        )
+
+    def fake_run(args: list[str], **_kwargs):
+        assert args == [
+            "curl",
+            "-fsSL",
+            "--max-time",
+            "20",
+            "https://pmc.ncbi.nlm.nih.gov/articles/PMC5038198/",
+        ]
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout=b"<html>ok</html>")
+
+    monkeypatch.setattr("backend.app.urlopen", fake_urlopen)
+    monkeypatch.setattr("backend.app.subprocess.run", fake_run)
+
+    assert fetch_url_text("https://pmc.ncbi.nlm.nih.gov/articles/PMC5038198/") == "<html>ok</html>"
+
+
 def test_pubmed_source_resolves_through_pmc_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_fetch_json(url: str, *, headers: dict[str, str] | None = None) -> object:
         assert headers is not None
@@ -648,6 +772,8 @@ def test_pubmed_source_resolves_through_pmc_when_available(monkeypatch: pytest.M
 
     def fake_fetch_text(url: str, *, headers: dict[str, str] | None = None) -> str:
         assert headers is not None
+        if "elink.fcgi" in url:
+            return "<eLinkResult></eLinkResult>"
         assert "efetch.fcgi" in url
         return (
             "<article><front><article-meta><title-group><article-title>PMC article</article-title>"
