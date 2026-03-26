@@ -154,14 +154,24 @@ class PathwayClaim(BaseModel):
     quoted_support: str
 
 
-class PathwayClaimExtraction(BaseModel):
-    paper_id: str
-    url: str | None = None
-    title: str
-    journal: str | None = None
-    publication_date: str | None = None
-    abstract: str | None = None
-    claims: list[PathwayClaim] = Field(default_factory=list)
+class MultiPaperPathwayClaim(PathwayClaim):
+    paper_source_id: str
+    paper_title: str | None = None
+
+
+class MultiPaperPathwayClaimExtraction(BaseModel):
+    corpus_title: str | None = None
+    claims: list[MultiPaperPathwayClaim] = Field(default_factory=list)
+
+
+class CuratedPathwayClaim(MultiPaperPathwayClaim):
+    selection_rationale: str
+
+
+class CuratedPathwayClaimSet(BaseModel):
+    graph_title: str | None = None
+    graph_summary: str | None = None
+    claims: list[CuratedPathwayClaim] = Field(default_factory=list)
 
 
 class EntityMention(BaseModel):
@@ -462,16 +472,6 @@ class PathwayNodePayload(BaseModel):
         )
         return normalized
 
-
-class PaperChunk(BaseModel):
-    chunk_id: str
-    section: str
-    subsection: str | None = None
-    text: str
-    paper_source_id: str | None = None
-    paper_title: str | None = None
-
-
 class PathwayBuildRequest(BaseModel):
     title: str | None = None
     focusTerms: list[str] = Field(default_factory=list)
@@ -504,8 +504,6 @@ class ParsedSourceSummary(BaseModel):
     sourceId: str
     label: str
     fetchStatus: Literal["fetched", "failed"]
-    sectionCount: int = Field(ge=0)
-    chunkCount: int = Field(ge=0)
     title: str | None = None
     pubmedId: str | None = None
     pmcid: str | None = None

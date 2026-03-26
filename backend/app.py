@@ -34,14 +34,15 @@ from backend.pathway_models import (
     AggregationPassResult,
     EvidenceCard,
     EvidenceItem,
+    CuratedPathwayClaim,
+    CuratedPathwayClaimSet,
     DuplicateEntityReview,
     ExtractionPassResult,
     NormalizedEntity,
     ParsedSourceSummary,
     PathwayBuildRequest,
     PathwayBuildResponse,
-    PathwayClaim,
-    PathwayClaimExtraction,
+    MultiPaperPathwayClaimExtraction,
     PathwayGraph,
     PathwayNodePayload,
     PathwayPaperSource,
@@ -51,11 +52,11 @@ from backend.pathway_models import (
     PathwaySanityFinding,
     PathwaySanityReport,
     PathwaySanitySummary,
-    PaperChunk,
     ResolvedEntityMatch,
     UnresolvedIssue,
 )
 from backend.pathway_prompts import (
+    CURATION_SYSTEM_PROMPT,
     DUPLICATE_ENTITY_REVIEW_PROMPT,
     EXTRACTION_SYSTEM_PROMPT,
     QUERY_SYSTEM_PROMPT,
@@ -2414,8 +2415,6 @@ def resolve_source_text(
         sourceId=source.sourceId,
         label=label,
         fetchStatus="failed",
-        sectionCount=0,
-        chunkCount=0,
         title=source.title,
         pubmedId=source.pubmedId,
         pmcid=source.pmcid,
@@ -2432,9 +2431,9 @@ def resolve_source_text(
 
     if source.sourceType == "pubmed_url":
         pmcid, pubmed_warnings = resolve_pubmed_url_to_pmcid(source)
-        summary.warnings.extend(pubmed_warnings)
-        warnings.extend(pubmed_warnings)
         if not pmcid:
+            summary.warnings.extend(pubmed_warnings)
+            warnings.extend(pubmed_warnings)
             warning = (
                 "PubMed URL source did not resolve to a usable PMC full-text article. "
                 "If only the abstract is available, provide raw full text instead."
@@ -2473,132 +2472,26 @@ def resolve_source_text(
     return text, summary, warnings, True
 
 
-def classify_heading(value: str) -> str | None:
-    compact = normalize_surface_form(value)
-    if compact in {"abstract"}:
-        return "Abstract"
-    if compact in {"introduction", "background"}:
-        return "Introduction"
-    if compact in {"methods", "materials and methods", "patients and methods"}:
-        return "Methods"
-    if compact in {"results"}:
-        return "Results"
-    if compact in {"discussion"}:
-        return "Discussion"
-    if compact in {"conclusion", "conclusions"}:
-        return "Conclusion"
-    if compact.startswith("figure ") or compact.startswith("fig "):
-        return "Figure captions"
-    if compact.startswith("table "):
-        return "Tables"
-    return None
-
-
-def parse_section_chunks(
-    text: str,
-    source_id: str,
-    paper_title: str | None,
-) -> tuple[list[PaperChunk], set[str]]:
-    cleaned = text.replace("\r\n", "\n").replace("\r", "\n")
-    paragraphs = [part.strip() for part in re.split(r"\n{2,}", cleaned) if part.strip()]
-    current_section = "Unknown"
-    current_subsection: str | None = None
-    chunks: list[PaperChunk] = []
-    seen_sections: set[str] = set()
-    chunk_index = 1
-
-    for paragraph in paragraphs:
-        first_line = paragraph.splitlines()[0].strip()
-        heading = classify_heading(first_line)
-        if heading and len(paragraph) <= 160:
-            current_section = heading
-            current_subsection = first_line if heading == "Unknown" else None
-            seen_sections.add(current_section)
-            continue
-
-        section = current_section
-        if not seen_sections:
-            seen_sections.add(section)
-
-        text_blocks = re.split(r"(?<=[.!?])\s+", paragraph)
-        buffer = ""
-        for block in text_blocks:
-            candidate = f"{buffer} {block}".strip() if buffer else block
-            if len(candidate) <= 1000:
-                buffer = candidate
-                continue
-            if buffer:
-                chunks.append(
-                    PaperChunk(
-                        chunk_id=f"{source_id}_chunk_{chunk_index}",
-                        section=section,
-                        subsection=current_subsection,
-                        text=buffer,
-                        paper_source_id=source_id,
-                        paper_title=paper_title,
-                    )
-                )
-                chunk_index += 1
-            buffer = block
-        if buffer:
-            chunks.append(
-                PaperChunk(
-                    chunk_id=f"{source_id}_chunk_{chunk_index}",
-                    section=section,
-                    subsection=current_subsection,
-                    text=buffer,
-                    paper_source_id=source_id,
-                    paper_title=paper_title,
-                )
-            )
-            chunk_index += 1
-
-    return chunks, seen_sections
-
-
-def select_extraction_chunks(chunks: list[PaperChunk]) -> tuple[list[PaperChunk], bool]:
-    section_priority = {
-        "Results": 0,
-        "Abstract": 1,
-        "Discussion": 2,
-        "Introduction": 3,
-        "Unknown": 4,
-        "Methods": 5,
-    }
-    ranked = sorted(
-        enumerate(chunks),
-        key=lambda item: (section_priority.get(item[1].section, 99), item[0]),
-    )
-
-    max_chunks = int(os.getenv("PATHWAY_EXTRACTION_MAX_CHUNKS", "500"))
-    max_chars = int(os.getenv("PATHWAY_EXTRACTION_MAX_CHARS", "500000"))
-
-    selected: list[PaperChunk] = []
-    total_chars = 0
-    for _, chunk in ranked:
-        if len(selected) >= max_chunks:
-            break
-        if selected and total_chars + len(chunk.text) > max_chars:
-            continue
-        selected.append(chunk)
-        total_chars += len(chunk.text)
-
-    selected_ids = {chunk.chunk_id for chunk in selected}
-    in_order = [chunk for chunk in chunks if chunk.chunk_id in selected_ids]
-    return in_order, len(in_order) < len(chunks)
-
-
-def build_claim_extraction_input(
-    source: PathwayPaperSource,
-    summary: ParsedSourceSummary,
-    source_text: str,
+def build_multi_paper_claim_extraction_input(
+    payload: PathwayBuildRequest,
+    full_text_sources: list[tuple[PathwayPaperSource, ParsedSourceSummary, str]],
 ) -> dict[str, object]:
     return {
-        "paper_id": source.pubmedId or summary.pmcid or source.sourceId,
-        "url": source.sourceValue,
-        "title": summary.title or summary.label,
-        "abstract": None,
-        "source_text": source_text,
+        "corpus_title": payload.title or "Biological pathway paper set",
+        "focus_terms": payload.focusTerms,
+        "papers": [
+            {
+                "paper_source_id": source.sourceId,
+                "paper_title": summary.title or source.title or summary.label,
+                "paper_label": summary.label,
+                "pubmed_id": source.pubmedId,
+                "pmcid": source.pmcid,
+                "source_type": source.sourceType,
+                "source_value": source.sourceValue,
+                "full_text": source_text,
+            }
+            for source, summary, source_text in full_text_sources
+        ],
     }
 
 
@@ -2695,28 +2588,174 @@ def simple_claim_to_support_class(claim: PathwayClaim) -> str:
     return "author_interpretation"
 
 
-def call_claim_extraction_model(
+def call_multi_paper_claim_extraction_model(
     *,
-    source: PathwayPaperSource,
-    summary: ParsedSourceSummary,
-    source_text: str,
-) -> PathwayClaimExtraction:
+    payload: PathwayBuildRequest,
+    full_text_sources: list[tuple[PathwayPaperSource, ParsedSourceSummary, str]],
+) -> MultiPaperPathwayClaimExtraction:
     return call_pathway_model(
         feature_name="Pathway build",
         model_env="OPENAI_PATHWAY_EXTRACTION_MODEL",
-        default_model="gpt-5.4-mini-2026-03-17",
-        schema_name="pathway_claim_extraction",
+        default_model="gpt-5.4-2026-03-05",
+        schema_name="multi_paper_pathway_claim_extraction",
         instructions=EXTRACTION_SYSTEM_PROMPT,
-        input_payload=build_claim_extraction_input(source, summary, source_text),
-        response_model=PathwayClaimExtraction,
-        max_output_tokens=5000,
+        input_payload=build_multi_paper_claim_extraction_input(payload, full_text_sources),
+        response_model=MultiPaperPathwayClaimExtraction,
+        max_output_tokens=12000,
+    )
+
+
+def build_pathway_curation_input(
+    payload: PathwayBuildRequest,
+    parsed_sources: list[ParsedSourceSummary],
+    extraction: MultiPaperPathwayClaimExtraction,
+) -> dict[str, object]:
+    return {
+        "corpus_title": payload.title or extraction.corpus_title or "Biological pathway paper set",
+        "focus_terms": payload.focusTerms,
+        "source_papers": [
+            {
+                "paper_source_id": summary.sourceId,
+                "paper_title": summary.title or summary.label,
+                "label": summary.label,
+                "pubmed_id": summary.pubmedId,
+                "pmcid": summary.pmcid,
+            }
+            for summary in parsed_sources
+            if summary.fetchStatus == "fetched"
+        ],
+        "candidate_claims": [claim.model_dump() for claim in extraction.claims],
+    }
+
+
+def call_pathway_curation_model(
+    *,
+    payload: PathwayBuildRequest,
+    parsed_sources: list[ParsedSourceSummary],
+    extraction: MultiPaperPathwayClaimExtraction,
+) -> CuratedPathwayClaimSet:
+    return call_pathway_model(
+        feature_name="Pathway curation",
+        model_env="OPENAI_PATHWAY_CURATION_MODEL",
+        default_model=os.getenv("OPENAI_PATHWAY_EXTRACTION_MODEL", "gpt-5.4-2026-03-05"),
+        schema_name="curated_pathway_claim_set",
+        instructions=CURATION_SYSTEM_PROMPT,
+        input_payload=build_pathway_curation_input(payload, parsed_sources, extraction),
+        response_model=CuratedPathwayClaimSet,
+        max_output_tokens=9000,
+    )
+
+
+def should_collapse_member_to_family(
+    member_name: str,
+    member_type: str,
+    family_name: str,
+    family_type: str,
+) -> bool:
+    if member_type != family_type:
+        return False
+    if member_type not in {"protein", "gene", "family"}:
+        return False
+
+    family_key = normalize_surface_form(family_name)
+    member_key = normalize_surface_form(member_name)
+    if family_key == member_key or len(family_key) < 3:
+        return False
+    compact_family_key = family_key.replace(" ", "")
+    compact_member_key = member_key.replace(" ", "")
+    if not compact_member_key.startswith(compact_family_key):
+        return False
+
+    suffix = compact_member_key[len(compact_family_key):]
+    if not suffix:
+        return False
+
+    family_looks_like_target_family = (
+        any(char.isdigit() for char in family_name)
+        or member_type == "family"
+        or len(family_key) >= 4
+    )
+    if not family_looks_like_target_family:
+        return False
+
+    return bool(
+        re.fullmatch(r"[a-z]{0,3}\d{0,3}[a-z]{0,2}", suffix)
+        or re.fullmatch(r"p\d{2,3}", suffix)
+        or suffix in {"alpha", "beta", "gamma", "delta"}
+    )
+
+
+def reconcile_curated_claim_abstractions(
+    curated_claims: CuratedPathwayClaimSet,
+) -> CuratedPathwayClaimSet:
+    entity_types: dict[str, str] = {}
+    entity_names: set[str] = set()
+    for claim in curated_claims.claims:
+        entity_types.setdefault(claim.source_entity, claim.source_type)
+        entity_types.setdefault(claim.target_entity, claim.target_type)
+        entity_names.add(claim.source_entity)
+        entity_names.add(claim.target_entity)
+
+    replacement_by_name: dict[str, str] = {}
+    sorted_names = sorted(entity_names, key=lambda value: len(normalize_surface_form(value)), reverse=True)
+    family_candidates = sorted(entity_names, key=lambda value: len(normalize_surface_form(value)), reverse=True)
+    for member_name in sorted_names:
+        member_type = entity_types.get(member_name)
+        if not member_type:
+            continue
+        best_family: str | None = None
+        best_family_len = -1
+        for family_name in family_candidates:
+            family_type = entity_types.get(family_name)
+            if not family_type:
+                continue
+            if not should_collapse_member_to_family(member_name, member_type, family_name, family_type):
+                continue
+            family_len = len(normalize_surface_form(family_name))
+            if family_len > best_family_len:
+                best_family = family_name
+                best_family_len = family_len
+        if best_family:
+            replacement_by_name[member_name] = best_family
+
+    if not replacement_by_name:
+        return curated_claims
+
+    rewritten_claims: list[CuratedPathwayClaim] = []
+    for claim in curated_claims.claims:
+        source_entity = replacement_by_name.get(claim.source_entity, claim.source_entity)
+        target_entity = replacement_by_name.get(claim.target_entity, claim.target_entity)
+        source_type = entity_types.get(source_entity, claim.source_type)
+        target_type = entity_types.get(target_entity, claim.target_type)
+        selection_rationale = claim.selection_rationale
+        if source_entity != claim.source_entity or target_entity != claim.target_entity:
+            selection_rationale = (
+                selection_rationale.rstrip() + " Reconciled to a family-level node for graph consistency."
+            ).strip()
+        rewritten_claims.append(
+            CuratedPathwayClaim(
+                **{
+                    **claim.model_dump(),
+                    "source_entity": source_entity,
+                    "source_type": source_type,
+                    "target_entity": target_entity,
+                    "target_type": target_type,
+                    "selection_rationale": selection_rationale,
+                }
+            )
+        )
+
+    return CuratedPathwayClaimSet(
+        graph_title=curated_claims.graph_title,
+        graph_summary=curated_claims.graph_summary,
+        claims=rewritten_claims,
     )
 
 
 def merge_claim_extractions_into_graph(
     payload: PathwayBuildRequest,
     parsed_sources: list[ParsedSourceSummary],
-    extracted_claims: list[tuple[PathwayPaperSource, ParsedSourceSummary, PathwayClaimExtraction]],
+    curated_claims: CuratedPathwayClaimSet,
 ) -> PathwayGraph:
     entity_index_by_key: dict[str, int] = {}
     entities: list[NormalizedEntity] = []
@@ -2756,70 +2795,72 @@ def merge_claim_extractions_into_graph(
         entity_index_by_key[key] = len(entities) - 1
         return entity_id
 
-    for source, summary, extraction in extracted_claims:
-        for claim_index, claim in enumerate(extraction.claims, start=1):
-            source_entity_id = get_entity_id(claim.source_entity, claim.source_type)
-            target_entity_id = get_entity_id(claim.target_entity, claim.target_type)
-            evidence_id = f"EV_{source.sourceId}_{claim_index}"
-            source_mention_id = f"M_{source.sourceId}_{claim_index}_source"
-            target_mention_id = f"M_{source.sourceId}_{claim_index}_target"
-            confidence = simple_claim_strength_to_confidence(claim.claim_strength)
-            evidence_item = EvidenceItem(
-                evidence_id=evidence_id,
-                paper_source_id=source.sourceId,
-                paper_title=summary.title or extraction.title,
-                chunk_id=f"{source.sourceId}_claim_{claim_index}",
-                section="Results",
-                source_mention_id=source_mention_id,
-                target_mention_id=target_mention_id,
-                source_entity_name=claim.source_entity,
-                target_entity_name=claim.target_entity,
-                relation_type=simple_claim_interaction_to_relation_type(claim.interaction_type),
+    source_summary_by_id = {summary.sourceId: summary for summary in parsed_sources}
+
+    for claim_index, claim in enumerate(curated_claims.claims, start=1):
+        source_entity_id = get_entity_id(claim.source_entity, claim.source_type)
+        target_entity_id = get_entity_id(claim.target_entity, claim.target_type)
+        source_summary = source_summary_by_id.get(claim.paper_source_id)
+        evidence_id = f"EV_{claim.paper_source_id}_{claim_index}"
+        source_mention_id = f"M_{claim.paper_source_id}_{claim_index}_source"
+        target_mention_id = f"M_{claim.paper_source_id}_{claim_index}_target"
+        confidence = simple_claim_strength_to_confidence(claim.claim_strength)
+        evidence_item = EvidenceItem(
+            evidence_id=evidence_id,
+            paper_source_id=claim.paper_source_id,
+            paper_title=claim.paper_title or (source_summary.title if source_summary else None),
+            chunk_id=f"{claim.paper_source_id}_claim_{claim_index}",
+            section="Results",
+            source_mention_id=source_mention_id,
+            target_mention_id=target_mention_id,
+            source_entity_name=claim.source_entity,
+            target_entity_name=claim.target_entity,
+            relation_type=simple_claim_interaction_to_relation_type(claim.interaction_type),
+            relation_category="interaction",
+            assertion_status="explicit",
+            direction="undirected" if claim.interaction_type == "binds" else "source_to_target",
+            support_class=simple_claim_to_support_class(claim),
+            mechanistic_status=simple_claim_to_mechanistic_status(claim),
+            evidence_modality=simple_claim_evidence_level_to_modality(claim.evidence_level),
+            species_or_system=claim.system_context,
+            experiment_context=claim.experiment_summary,
+            intervention=claim.source_entity,
+            measured_endpoint=claim.target_entity,
+            effect_direction=simple_claim_to_effect_direction(claim),
+            supporting_snippet=claim.quoted_support,
+            is_from_current_paper=True,
+            is_primary_result=claim.claim_strength in {"strong", "moderate"},
+            figure_or_table_ref=None,
+            cited_reference_numbers=[],
+            confidence=confidence,
+            short_rationale=claim.experiment_summary,
+        )
+        evidence_items.append(evidence_item)
+
+        relation_key = (
+            source_entity_id,
+            target_entity_id,
+            evidence_item.relation_type,
+        )
+        relation_bucket.setdefault(relation_key, []).append(evidence_item)
+
+        if relation_key not in relation_index:
+            relation_index[relation_key] = AggregatedRelation(
+                relation_id=f"R_{len(relation_index) + 1}",
+                source_entity_id=source_entity_id,
+                target_entity_id=target_entity_id,
+                relation_type=evidence_item.relation_type,
                 relation_category="interaction",
                 assertion_status="explicit",
                 direction="undirected" if claim.interaction_type == "binds" else "source_to_target",
-                support_class=simple_claim_to_support_class(claim),
-                mechanistic_status=simple_claim_to_mechanistic_status(claim),
-                evidence_modality=simple_claim_evidence_level_to_modality(claim.evidence_level),
-                species_or_system=claim.system_context,
-                experiment_context=claim.experiment_summary,
-                intervention=claim.source_entity,
-                measured_endpoint=claim.target_entity,
-                effect_direction=simple_claim_to_effect_direction(claim),
-                supporting_snippet=claim.quoted_support,
-                is_from_current_paper=True,
-                is_primary_result=claim.claim_strength in {"strong", "moderate"},
-                figure_or_table_ref=None,
-                cited_reference_numbers=[],
+                support_class=evidence_item.support_class,
+                mechanistic_status=evidence_item.mechanistic_status,
+                evidence_strength=simple_claim_strength_to_evidence_strength(claim.claim_strength),
                 confidence=confidence,
-                short_rationale=claim.experiment_summary,
+                evidence_ids=[evidence_id],
+                summary=f"{claim.source_entity} {claim.interaction_type} {claim.target_entity}.",
+                notes=f"Merged from {source_summary.label if source_summary else claim.paper_source_id}.",
             )
-            evidence_items.append(evidence_item)
-
-            relation_key = (
-                source_entity_id,
-                target_entity_id,
-                evidence_item.relation_type,
-            )
-            relation_bucket.setdefault(relation_key, []).append(evidence_item)
-
-            if relation_key not in relation_index:
-                relation_index[relation_key] = AggregatedRelation(
-                    relation_id=f"R_{len(relation_index) + 1}",
-                    source_entity_id=source_entity_id,
-                    target_entity_id=target_entity_id,
-                    relation_type=evidence_item.relation_type,
-                    relation_category="interaction",
-                    assertion_status="explicit",
-                    direction="source_to_target",
-                    support_class=evidence_item.support_class,
-                    mechanistic_status=evidence_item.mechanistic_status,
-                    evidence_strength=simple_claim_strength_to_evidence_strength(claim.claim_strength),
-                    confidence=confidence,
-                    evidence_ids=[evidence_id],
-                    summary=f"{claim.source_entity} {claim.interaction_type} {claim.target_entity}.",
-                    notes=f"Merged from {summary.label}.",
-                )
 
     for relation_key, relation in relation_index.items():
         relation_evidence = relation_bucket.get(relation_key, [])
@@ -2871,6 +2912,46 @@ def merge_claim_extractions_into_graph(
     )
 
 
+def prune_nonvisual_process_and_phenotype_edges(graph: PathwayGraph) -> PathwayGraph:
+    entity_by_id = {entity.entity_id: entity for entity in graph.normalized_entities}
+
+    def relation_is_allowed(relation: AggregatedRelation) -> bool:
+        source_entity = entity_by_id.get(relation.source_entity_id)
+        target_entity = entity_by_id.get(relation.target_entity_id)
+        if not source_entity or not target_entity:
+            return False
+        if relation.relation_type == "regulates_expression" and target_entity.entity_type in {
+            "phenotype",
+            "pathway",
+            "process",
+        }:
+            return False
+        return True
+
+    kept_default = [relation for relation in graph.default_relations if relation_is_allowed(relation)]
+    kept_nondefault = [relation for relation in graph.nondefault_relations if relation_is_allowed(relation)]
+    kept_structural = [relation for relation in graph.structural_relations if relation_is_allowed(relation)]
+
+    referenced_entity_ids = {
+        relation.source_entity_id
+        for relation in [*kept_default, *kept_nondefault, *kept_structural]
+    } | {
+        relation.target_entity_id
+        for relation in [*kept_default, *kept_nondefault, *kept_structural]
+    }
+
+    kept_entities = [
+        entity for entity in graph.normalized_entities if entity.entity_id in referenced_entity_ids
+    ]
+
+    graph_payload = graph.model_dump()
+    graph_payload["normalized_entities"] = [entity.model_dump() for entity in kept_entities]
+    graph_payload["default_relations"] = [relation.model_dump() for relation in kept_default]
+    graph_payload["nondefault_relations"] = [relation.model_dump() for relation in kept_nondefault]
+    graph_payload["structural_relations"] = [relation.model_dump() for relation in kept_structural]
+    return PathwayGraph(**graph_payload)
+
+
 def review_duplicate_entities_with_llm(graph: PathwayGraph) -> DuplicateEntityReview:
     entity_catalog = [
         {
@@ -2885,7 +2966,7 @@ def review_duplicate_entities_with_llm(graph: PathwayGraph) -> DuplicateEntityRe
     return call_pathway_model(
         feature_name="Pathway duplicate entity review",
         model_env="OPENAI_PATHWAY_NORMALIZATION_MODEL",
-        default_model="gpt-5.4-mini-2026-03-17",
+        default_model="gpt-5.4-2026-03-05",
         schema_name="pathway_duplicate_entity_review",
         instructions=DUPLICATE_ENTITY_REVIEW_PROMPT,
         input_payload={"entity_catalog_json": entity_catalog},
@@ -3333,29 +3414,19 @@ def build_pathway_graph_with_llm(payload: PathwayBuildRequest) -> PathwayBuildRe
 
     parsed_sources: list[ParsedSourceSummary] = []
     warnings: list[str] = []
-    extracted_claims: list[tuple[PathwayPaperSource, ParsedSourceSummary, PathwayClaimExtraction]] = []
+    full_text_sources: list[tuple[PathwayPaperSource, ParsedSourceSummary, str]] = []
 
     for source in payload.paperSources:
         source_text, summary, source_warnings, has_full_text = resolve_source_text(source)
         warnings.extend(source_warnings)
-
-        if not source_text or not has_full_text:
-            parsed_sources.append(summary)
-            continue
-
-        chunks, seen_sections = parse_section_chunks(source_text, source.sourceId, summary.title)
-        summary.sectionCount = len(seen_sections)
-        summary.chunkCount = len(chunks)
         parsed_sources.append(summary)
 
-        extraction = call_claim_extraction_model(
-            source=source,
-            summary=summary,
-            source_text=source_text,
-        )
-        extracted_claims.append((source, summary, extraction))
+        if not source_text or not has_full_text:
+            continue
 
-    if not extracted_claims:
+        full_text_sources.append((source, summary, source_text))
+
+    if not full_text_sources:
         return PathwayBuildResponse(
             status="error",
             parsedSources=parsed_sources,
@@ -3366,7 +3437,18 @@ def build_pathway_graph_with_llm(payload: PathwayBuildRequest) -> PathwayBuildRe
             errors=["Provide raw full text or a fetchable PMC source."],
         )
 
-    graph = merge_claim_extractions_into_graph(payload, parsed_sources, extracted_claims)
+    extraction = call_multi_paper_claim_extraction_model(
+        payload=payload,
+        full_text_sources=full_text_sources,
+    )
+    curated_claims = call_pathway_curation_model(
+        payload=payload,
+        parsed_sources=parsed_sources,
+        extraction=extraction,
+    )
+    curated_claims = reconcile_curated_claim_abstractions(curated_claims)
+    graph = merge_claim_extractions_into_graph(payload, parsed_sources, curated_claims)
+    graph = prune_nonvisual_process_and_phenotype_edges(graph)
     try:
         duplicate_review = review_duplicate_entities_with_llm(graph)
     except HTTPException as error:
@@ -3392,9 +3474,14 @@ def build_pathway_graph_with_llm(payload: PathwayBuildRequest) -> PathwayBuildRe
         pathwayGraph=graph,
         sanityReport=final_sanity,
         buildSummary=(
-            f"Built a paper-grounded pathway demo with {len(graph.normalized_entities)} entities, "
-            f"{len(graph.default_relations)} visible relations, and "
-            f"{final_sanity.summary.high_priority_issue_count} high-priority sanity findings."
+            (
+                (curated_claims.graph_summary.strip() + " ")
+                if curated_claims.graph_summary and curated_claims.graph_summary.strip()
+                else ""
+            )
+            + f"Built a paper-grounded pathway demo with {len(graph.normalized_entities)} entities, "
+            + f"{len(graph.default_relations)} visible relations, and "
+            + f"{final_sanity.summary.high_priority_issue_count} high-priority sanity findings."
         ),
         warnings=warnings,
         errors=[],

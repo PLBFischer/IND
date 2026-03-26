@@ -333,8 +333,6 @@ export type PathwayBuildResponse = {
     sourceId: string;
     label: string;
     fetchStatus: 'fetched' | 'failed';
-    sectionCount: number;
-    chunkCount: number;
     title: string | null;
     pubmedId: string | null;
     pmcid: string | null;

@@ -1268,7 +1268,7 @@ function App() {
                 extractionError: payload.errors.join('\n') || null,
                 pathwayGraph: payload.pathwayGraph,
                 sanityReport: payload.sanityReport,
-                summary: values.summary?.trim() || payload.buildSummary,
+                summary: payload.buildSummary,
                 lastBuiltAt: new Date().toISOString(),
                 lastBuildResponse: payload,
               }

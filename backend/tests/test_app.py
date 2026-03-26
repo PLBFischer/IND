@@ -19,11 +19,14 @@ from backend.app import (
     extract_pmcid_from_pubmed_html,
     fetch_url_text,
     normalize_surface_form,
+    prune_nonvisual_process_and_phenotype_edges,
+    reconcile_curated_claim_abstractions,
     resolve_source_text,
     solve_schedule_response,
 )
 from backend.pathway_models import (
     AggregatedRelation,
+    CuratedPathwayClaimSet,
     DuplicateEntityReview,
     EvidenceItem,
     NormalizedEntity,
@@ -607,6 +610,185 @@ def test_apply_duplicate_entity_merges_combines_safe_duplicate_entities() -> Non
     assert "TNFα" in merged_entity.aliases or "TNF-α" in merged_entity.aliases
     assert merged.default_relations[0].source_entity_id == merged_entity.entity_id
     assert set(merged.default_relations[0].evidence_ids) == {"EV1", "EV2"}
+
+
+def test_reconcile_curated_claim_abstractions_collapses_family_member_splits() -> None:
+    curated = CuratedPathwayClaimSet.model_validate(
+        {
+            "graph_title": "PDE4 demo",
+            "graph_summary": "Demo graph",
+            "claims": [
+                {
+                    "paper_source_id": "paper_1",
+                    "paper_title": "Paper 1",
+                    "source_entity": "11h",
+                    "source_type": "small_molecule",
+                    "target_entity": "PDE4",
+                    "target_type": "protein",
+                    "interaction_type": "inhibits",
+                    "evidence_level": "in_vitro",
+                    "system_context": "assay",
+                    "experiment_summary": "11h inhibits PDE4 family activity.",
+                    "claim_strength": "strong",
+                    "quoted_support": "11h inhibited PDE4 isoforms.",
+                    "selection_rationale": "Keeps the target family compact.",
+                },
+                {
+                    "paper_source_id": "paper_2",
+                    "paper_title": "Paper 2",
+                    "source_entity": "TNF alpha",
+                    "source_type": "protein",
+                    "target_entity": "PDE4B",
+                    "target_type": "protein",
+                    "interaction_type": "activates",
+                    "evidence_level": "in_vitro",
+                    "system_context": "microglia",
+                    "experiment_summary": "TNF alpha raises PDE4-linked activity.",
+                    "claim_strength": "moderate",
+                    "quoted_support": "TNF alpha increased PDE activity.",
+                    "selection_rationale": "Captures the inflammatory branch.",
+                },
+            ],
+        }
+    )
+
+    reconciled = reconcile_curated_claim_abstractions(curated)
+
+    assert [claim.target_entity for claim in reconciled.claims] == ["PDE4", "PDE4"]
+
+
+def test_reconcile_curated_claim_abstractions_collapses_subunit_to_canonical_node() -> None:
+    curated = CuratedPathwayClaimSet.model_validate(
+        {
+            "graph_title": "NF-kB demo",
+            "graph_summary": "Demo graph",
+            "claims": [
+                {
+                    "paper_source_id": "paper_1",
+                    "paper_title": "Paper 1",
+                    "source_entity": "cAMP",
+                    "source_type": "small_molecule",
+                    "target_entity": "NF-kB",
+                    "target_type": "protein",
+                    "interaction_type": "inhibits",
+                    "evidence_level": "in_vitro",
+                    "system_context": "microglia",
+                    "experiment_summary": "cAMP antagonizes NF-kB signaling.",
+                    "claim_strength": "strong",
+                    "quoted_support": "cAMP blocked NF-kB nuclear signaling.",
+                    "selection_rationale": "Keeps the pathway readable.",
+                },
+                {
+                    "paper_source_id": "paper_2",
+                    "paper_title": "Paper 2",
+                    "source_entity": "TNF-alpha",
+                    "source_type": "protein",
+                    "target_entity": "NF-kB p65",
+                    "target_type": "protein",
+                    "interaction_type": "activates",
+                    "evidence_level": "in_vitro",
+                    "system_context": "microglia",
+                    "experiment_summary": "TNF-alpha increases p65 nuclear signaling.",
+                    "claim_strength": "strong",
+                    "quoted_support": "TNF-alpha increased p-p65 Ser-536.",
+                    "selection_rationale": "Preserves the inflammatory branch.",
+                },
+            ],
+        }
+    )
+
+    reconciled = reconcile_curated_claim_abstractions(curated)
+
+    assert [claim.target_entity for claim in reconciled.claims] == ["NF-kB", "NF-kB"]
+
+
+def test_prune_nonvisual_process_and_phenotype_edges_removes_expression_to_phenotype() -> None:
+    graph = PathwayGraph(
+        paper_metadata={"title": "Demo", "pubmed_id": None, "pmcid": None, "doi": None},
+        entity_mentions=[],
+        evidence_items=[],
+        normalized_entities=[
+            NormalizedEntity(
+                entity_id="E1",
+                canonical_name="NF-kB",
+                entity_type="protein",
+                entity_kind="simple_entity",
+                aliases=[],
+                source_mention_ids=[],
+                normalization_status="exact_normalized",
+                base_entity_id=None,
+                component_entity_ids=[],
+                notes="",
+            ),
+            NormalizedEntity(
+                entity_id="E2",
+                canonical_name="phagocytosis",
+                entity_type="phenotype",
+                entity_kind="simple_entity",
+                aliases=[],
+                source_mention_ids=[],
+                normalization_status="exact_normalized",
+                base_entity_id=None,
+                component_entity_ids=[],
+                notes="",
+            ),
+            NormalizedEntity(
+                entity_id="E3",
+                canonical_name="iNOS",
+                entity_type="protein",
+                entity_kind="simple_entity",
+                aliases=[],
+                source_mention_ids=[],
+                normalization_status="exact_normalized",
+                base_entity_id=None,
+                component_entity_ids=[],
+                notes="",
+            ),
+        ],
+        default_relations=[
+            AggregatedRelation(
+                relation_id="R1",
+                source_entity_id="E1",
+                target_entity_id="E2",
+                relation_type="regulates_expression",
+                relation_category="interaction",
+                assertion_status="explicit",
+                direction="source_to_target",
+                support_class="current_paper_direct",
+                mechanistic_status="indirect",
+                evidence_strength="strong",
+                confidence=0.9,
+                evidence_ids=[],
+                summary="NF-kB regulates_expression phagocytosis.",
+                notes="",
+            ),
+            AggregatedRelation(
+                relation_id="R2",
+                source_entity_id="E1",
+                target_entity_id="E3",
+                relation_type="regulates_expression",
+                relation_category="interaction",
+                assertion_status="explicit",
+                direction="source_to_target",
+                support_class="current_paper_direct",
+                mechanistic_status="indirect",
+                evidence_strength="strong",
+                confidence=0.9,
+                evidence_ids=[],
+                summary="NF-kB regulates_expression iNOS.",
+                notes="",
+            ),
+        ],
+        structural_relations=[],
+        nondefault_relations=[],
+        normalization_decisions=[],
+        unresolved_issues=[],
+    )
+
+    pruned = prune_nonvisual_process_and_phenotype_edges(graph)
+
+    assert [relation.relation_id for relation in pruned.default_relations] == ["R2"]
+    assert [entity.canonical_name for entity in pruned.normalized_entities] == ["NF-kB", "iNOS"]
 
 
 def test_sanity_report_no_longer_requires_structural_links() -> None:
