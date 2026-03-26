@@ -39,6 +39,8 @@ from backend.pathway_models import (
     ParsedSourceSummary,
     PathwayBuildRequest,
     PathwayBuildResponse,
+    PathwayClaim,
+    PathwayClaimExtraction,
     PathwayGraph,
     PathwayNodePayload,
     PathwayPaperSource,
@@ -53,10 +55,8 @@ from backend.pathway_models import (
     UnresolvedIssue,
 )
 from backend.pathway_prompts import (
-    AGGREGATION_SYSTEM_PROMPT,
     EXTRACTION_SYSTEM_PROMPT,
     QUERY_SYSTEM_PROMPT,
-    SANITY_SYSTEM_PROMPT,
 )
 
 
@@ -2583,6 +2583,287 @@ def select_extraction_chunks(chunks: list[PaperChunk]) -> tuple[list[PaperChunk]
     return in_order, len(in_order) < len(chunks)
 
 
+def build_claim_extraction_input(
+    source: PathwayPaperSource,
+    summary: ParsedSourceSummary,
+    source_text: str,
+) -> dict[str, object]:
+    return {
+        "paper_id": source.pubmedId or summary.pmcid or source.sourceId,
+        "url": source.sourceValue,
+        "title": summary.title or summary.label,
+        "abstract": None,
+        "source_text": source_text,
+    }
+
+
+def simple_claim_entity_type_to_graph_entity_type(entity_type: str) -> str:
+    mapping = {
+        "protein": "protein",
+        "gene": "gene",
+        "small_molecule": "small_molecule",
+        "complex": "complex",
+        "pathway": "pathway",
+        "phenotype": "phenotype",
+        "other": "other",
+    }
+    return mapping.get(entity_type, "other")
+
+
+def simple_claim_interaction_to_relation_type(interaction_type: str) -> str:
+    mapping = {
+        "activates": "activates",
+        "inhibits": "inhibits",
+        "binds": "binds",
+        "phosphorylates": "phosphorylates",
+        "upregulates": "increases",
+        "downregulates": "decreases",
+        "associated_with": "associated_with",
+        "causes": "associated_with",
+        "suppresses": "decreases",
+        "unknown": "other",
+    }
+    return mapping.get(interaction_type, "other")
+
+
+def simple_claim_strength_to_confidence(claim_strength: str) -> float:
+    mapping = {
+        "strong": 0.9,
+        "moderate": 0.78,
+        "weak": 0.62,
+        "uncertain": 0.45,
+    }
+    return mapping.get(claim_strength, 0.6)
+
+
+def simple_claim_strength_to_evidence_strength(claim_strength: str) -> str:
+    if claim_strength == "strong":
+        return "strong"
+    if claim_strength == "moderate":
+        return "moderate"
+    return "weak"
+
+
+def simple_claim_evidence_level_to_modality(evidence_level: str) -> str:
+    mapping = {
+        "human": "human",
+        "in_vivo": "in_vivo",
+        "in_vitro": "in_vitro",
+        "in_silico": "computational",
+        "review": "review",
+        "unknown": "unknown",
+    }
+    return mapping.get(evidence_level, "unknown")
+
+
+def simple_claim_to_mechanistic_status(claim: PathwayClaim) -> str:
+    if claim.interaction_type in {"binds", "phosphorylates", "activates", "inhibits"}:
+        return "direct"
+    if claim.interaction_type in {"upregulates", "downregulates", "suppresses"}:
+        return "indirect"
+    return "associative"
+
+
+def simple_claim_to_effect_direction(claim: PathwayClaim) -> str:
+    mapping = {
+        "activates": "activate",
+        "inhibits": "inhibit",
+        "binds": "bind",
+        "phosphorylates": "activate",
+        "upregulates": "increase",
+        "downregulates": "decrease",
+        "associated_with": "associate",
+        "causes": "associate",
+        "suppresses": "decrease",
+        "unknown": "unknown",
+    }
+    return mapping.get(claim.interaction_type, "unknown")
+
+
+def simple_claim_to_support_class(claim: PathwayClaim) -> str:
+    if claim.claim_strength in {"strong", "moderate"}:
+        return "current_paper_direct"
+    if claim.claim_strength == "weak":
+        return "current_paper_indirect"
+    return "author_interpretation"
+
+
+def call_claim_extraction_model(
+    *,
+    source: PathwayPaperSource,
+    summary: ParsedSourceSummary,
+    source_text: str,
+) -> PathwayClaimExtraction:
+    return call_pathway_model(
+        feature_name="Pathway build",
+        model_env="OPENAI_PATHWAY_EXTRACTION_MODEL",
+        default_model="gpt-5.4-mini-2026-03-17",
+        schema_name="pathway_claim_extraction",
+        instructions=EXTRACTION_SYSTEM_PROMPT,
+        input_payload=build_claim_extraction_input(source, summary, source_text),
+        response_model=PathwayClaimExtraction,
+        max_output_tokens=5000,
+    )
+
+
+def merge_claim_extractions_into_graph(
+    payload: PathwayBuildRequest,
+    parsed_sources: list[ParsedSourceSummary],
+    extracted_claims: list[tuple[PathwayPaperSource, ParsedSourceSummary, PathwayClaimExtraction]],
+) -> PathwayGraph:
+    entity_index_by_key: dict[str, int] = {}
+    entities: list[NormalizedEntity] = []
+    evidence_items: list[EvidenceItem] = []
+    default_relations: list[AggregatedRelation] = []
+    nondefault_relations: list[AggregatedRelation] = []
+    relation_index: dict[tuple[str, str, str], AggregatedRelation] = {}
+    relation_bucket: dict[tuple[str, str, str], list[EvidenceItem]] = {}
+
+    def get_entity_id(name: str, entity_type: str) -> str:
+        key = normalize_surface_form(name)
+        if key in entity_index_by_key:
+            entity = entities[entity_index_by_key[key]]
+            if name not in entity.aliases and normalize_surface_form(entity.canonical_name) != key:
+                entity.aliases.append(name)
+            return entity.entity_id
+
+        entity_id = f"E_{len(entities) + 1}"
+        graph_entity_type = simple_claim_entity_type_to_graph_entity_type(entity_type)
+        entity_kind = "complex" if graph_entity_type == "complex" else (
+            "process_or_pathway" if graph_entity_type == "pathway" else "simple_entity"
+        )
+        entities.append(
+            NormalizedEntity(
+                entity_id=entity_id,
+                canonical_name=name,
+                entity_type=graph_entity_type,
+                entity_kind=entity_kind,
+                aliases=[],
+                source_mention_ids=[],
+                normalization_status="exact_normalized",
+                base_entity_id=None,
+                component_entity_ids=[],
+                notes="Merged conservatively from extracted paper claims.",
+            )
+        )
+        entity_index_by_key[key] = len(entities) - 1
+        return entity_id
+
+    for source, summary, extraction in extracted_claims:
+        for claim_index, claim in enumerate(extraction.claims, start=1):
+            source_entity_id = get_entity_id(claim.source_entity, claim.source_type)
+            target_entity_id = get_entity_id(claim.target_entity, claim.target_type)
+            evidence_id = f"EV_{source.sourceId}_{claim_index}"
+            source_mention_id = f"M_{source.sourceId}_{claim_index}_source"
+            target_mention_id = f"M_{source.sourceId}_{claim_index}_target"
+            confidence = simple_claim_strength_to_confidence(claim.claim_strength)
+            evidence_item = EvidenceItem(
+                evidence_id=evidence_id,
+                paper_source_id=source.sourceId,
+                paper_title=summary.title or extraction.title,
+                chunk_id=f"{source.sourceId}_claim_{claim_index}",
+                section="Results",
+                source_mention_id=source_mention_id,
+                target_mention_id=target_mention_id,
+                source_entity_name=claim.source_entity,
+                target_entity_name=claim.target_entity,
+                relation_type=simple_claim_interaction_to_relation_type(claim.interaction_type),
+                relation_category="interaction",
+                assertion_status="explicit",
+                direction="source_to_target",
+                support_class=simple_claim_to_support_class(claim),
+                mechanistic_status=simple_claim_to_mechanistic_status(claim),
+                evidence_modality=simple_claim_evidence_level_to_modality(claim.evidence_level),
+                species_or_system=claim.system_context,
+                experiment_context=claim.experiment_summary,
+                intervention=claim.source_entity,
+                measured_endpoint=claim.target_entity,
+                effect_direction=simple_claim_to_effect_direction(claim),
+                supporting_snippet=claim.quoted_support,
+                is_from_current_paper=True,
+                is_primary_result=claim.claim_strength in {"strong", "moderate"},
+                figure_or_table_ref=None,
+                cited_reference_numbers=[],
+                confidence=confidence,
+                short_rationale=claim.experiment_summary,
+            )
+            evidence_items.append(evidence_item)
+
+            relation_key = (
+                source_entity_id,
+                target_entity_id,
+                evidence_item.relation_type,
+            )
+            relation_bucket.setdefault(relation_key, []).append(evidence_item)
+
+            if relation_key not in relation_index:
+                relation_index[relation_key] = AggregatedRelation(
+                    relation_id=f"R_{len(relation_index) + 1}",
+                    source_entity_id=source_entity_id,
+                    target_entity_id=target_entity_id,
+                    relation_type=evidence_item.relation_type,
+                    relation_category="interaction",
+                    assertion_status="explicit",
+                    direction="source_to_target",
+                    support_class=evidence_item.support_class,
+                    mechanistic_status=evidence_item.mechanistic_status,
+                    evidence_strength=simple_claim_strength_to_evidence_strength(claim.claim_strength),
+                    confidence=confidence,
+                    evidence_ids=[evidence_id],
+                    summary=f"{claim.source_entity} {claim.interaction_type} {claim.target_entity}.",
+                    notes=f"Merged from {summary.label}.",
+                )
+
+    for relation_key, relation in relation_index.items():
+        relation_evidence = relation_bucket.get(relation_key, [])
+        relation.evidence_ids = [item.evidence_id for item in relation_evidence]
+        relation.confidence = max((item.confidence for item in relation_evidence), default=relation.confidence)
+        if any(item.support_class == "current_paper_direct" for item in relation_evidence):
+            relation.support_class = "current_paper_direct"
+        elif any(item.support_class == "current_paper_indirect" for item in relation_evidence):
+            relation.support_class = "current_paper_indirect"
+        else:
+            relation.support_class = "author_interpretation"
+
+        if any(item.mechanistic_status == "direct" for item in relation_evidence):
+            relation.mechanistic_status = "direct"
+        elif any(item.mechanistic_status == "indirect" for item in relation_evidence):
+            relation.mechanistic_status = "indirect"
+        else:
+            relation.mechanistic_status = "associative"
+
+        strong_count = sum(1 for item in relation_evidence if item.confidence >= 0.85)
+        if strong_count >= 1:
+            relation.evidence_strength = "strong"
+        elif relation.confidence >= 0.7:
+            relation.evidence_strength = "moderate"
+        else:
+            relation.evidence_strength = "weak"
+
+        if relation.evidence_strength in {"strong", "moderate"}:
+            default_relations.append(relation)
+        else:
+            nondefault_relations.append(relation)
+
+    paper_title = payload.title or (parsed_sources[0].title if parsed_sources else "Pathway paper")
+    return PathwayGraph(
+        paper_metadata={
+            "title": paper_title,
+            "pubmed_id": None,
+            "pmcid": None,
+            "doi": None,
+        },
+        entity_mentions=[],
+        evidence_items=evidence_items,
+        normalized_entities=entities,
+        default_relations=default_relations,
+        structural_relations=[],
+        nondefault_relations=nondefault_relations,
+        normalization_decisions=[],
+        unresolved_issues=[],
+    )
+
+
 def require_openai_client(feature_name: str) -> OpenAI:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -2960,9 +3241,8 @@ def build_pathway_graph_with_llm(payload: PathwayBuildRequest) -> PathwayBuildRe
         )
 
     parsed_sources: list[ParsedSourceSummary] = []
-    all_chunks: list[PaperChunk] = []
     warnings: list[str] = []
-    extraction_results: list[ExtractionPassResult] = []
+    extracted_claims: list[tuple[PathwayPaperSource, ParsedSourceSummary, PathwayClaimExtraction]] = []
 
     for source in payload.paperSources:
         source_text, summary, source_warnings, has_full_text = resolve_source_text(source)
@@ -2973,93 +3253,29 @@ def build_pathway_graph_with_llm(payload: PathwayBuildRequest) -> PathwayBuildRe
             continue
 
         chunks, seen_sections = parse_section_chunks(source_text, source.sourceId, summary.title)
-        extraction_chunks, was_capped = select_extraction_chunks(chunks)
         summary.sectionCount = len(seen_sections)
         summary.chunkCount = len(chunks)
-        if was_capped:
-            warning = (
-                f"Extraction input for {summary.label} was capped to {len(extraction_chunks)} of {len(chunks)} "
-                "chunks, prioritizing results-bearing sections to stay within model limits."
-            )
-            summary.warnings.append(warning)
-            warnings.append(warning)
         parsed_sources.append(summary)
-        all_chunks.extend(chunks)
 
-        extraction = call_pathway_model(
-            feature_name="Pathway build",
-            model_env="OPENAI_PATHWAY_EXTRACTION_MODEL",
-            default_model="gpt-5.4-mini-2026-03-17",
-            schema_name="pathway_extraction",
-            instructions=EXTRACTION_SYSTEM_PROMPT,
-            input_payload={
-                "paper_title": summary.title or payload.title or summary.label,
-                "pubmed_id": summary.pubmedId,
-                "pmcid": summary.pmcid,
-                "doi": None,
-                "json_chunks": [chunk.model_dump() for chunk in extraction_chunks],
-            },
-            response_model=ExtractionPassResult,
-            max_output_tokens=12000,
+        extraction = call_claim_extraction_model(
+            source=source,
+            summary=summary,
+            source_text=source_text,
         )
-        extraction_results.append(
-            attach_source_metadata_to_extraction(
-                extraction,
-                source.sourceId,
-                summary.title or payload.title or summary.label,
-            )
-        )
+        extracted_claims.append((source, summary, extraction))
 
-    if not extraction_results or not all_chunks:
+    if not extracted_claims:
         return PathwayBuildResponse(
             status="error",
             parsedSources=parsed_sources,
             pathwayGraph=None,
             sanityReport=None,
-            buildSummary="No reliable full text was available for conservative pathway extraction.",
+            buildSummary="No reliable full text was available for paper-grounded pathway claim extraction.",
             warnings=warnings,
             errors=["Provide raw full text or a fetchable PMC source."],
         )
 
-    combined_mentions = [
-        mention.model_dump()
-        for result in extraction_results
-        for mention in result.entity_mentions
-    ]
-    combined_evidence = [
-        evidence.model_dump()
-        for result in extraction_results
-        for evidence in result.evidence_items
-    ]
-    combined_issues = [
-        issue.model_dump()
-        for result in extraction_results
-        for issue in result.unresolved_structural_issues
-    ]
-
-    aggregation = call_pathway_model(
-        feature_name="Pathway aggregation",
-        model_env="OPENAI_PATHWAY_AGGREGATION_MODEL",
-        default_model="gpt-5.4-2026-03-05",
-        schema_name="pathway_aggregation",
-        instructions=AGGREGATION_SYSTEM_PROMPT,
-        input_payload={
-            "paper_metadata_json": {
-                "title": payload.title or parsed_sources[0].title or parsed_sources[0].label,
-            },
-            "entity_mentions_json": combined_mentions,
-            "evidence_items_json": combined_evidence,
-            "unresolved_structural_issues_json": combined_issues,
-        },
-        response_model=AggregationPassResult,
-    )
-    graph = apply_pathway_admission_policy(
-        build_pathway_graph(
-            payload.title or parsed_sources[0].title or parsed_sources[0].label,
-            extraction_results,
-            aggregation,
-        )
-    )
+    graph = merge_claim_extractions_into_graph(payload, parsed_sources, extracted_claims)
 
     if not graph.default_relations and not graph.structural_relations and not graph.nondefault_relations:
         return PathwayBuildResponse(
@@ -3067,38 +3283,20 @@ def build_pathway_graph_with_llm(payload: PathwayBuildRequest) -> PathwayBuildRe
             parsedSources=parsed_sources,
             pathwayGraph=None,
             sanityReport=None,
-            buildSummary="Extraction completed but produced no admissible pathway relations.",
+            buildSummary="Extraction completed but produced no demo-ready pathway claims.",
             warnings=warnings,
-            errors=["No conservative evidence items were retained."],
+            errors=["No explicit paper-grounded claims were retained."],
         )
 
-    sanity = call_pathway_model(
-        feature_name="Pathway sanity check",
-        model_env="OPENAI_PATHWAY_SANITY_MODEL",
-        default_model="gpt-5.4-2026-03-05",
-        schema_name="pathway_sanity",
-        instructions=SANITY_SYSTEM_PROMPT,
-        input_payload={
-            "normalized_entities_json": [entity.model_dump() for entity in graph.normalized_entities],
-            "default_relations_json": [relation.model_dump() for relation in graph.default_relations],
-            "structural_relations_json": [relation.model_dump() for relation in graph.structural_relations],
-            "nondefault_relations_json": [relation.model_dump() for relation in graph.nondefault_relations],
-            "normalization_decisions_json": [
-                decision.model_dump() for decision in graph.normalization_decisions
-            ],
-        },
-        response_model=PathwaySanityReport,
-    )
-
-    final_sanity = merge_sanity_reports(sanity, build_deterministic_sanity_report(graph))
+    final_sanity = build_deterministic_sanity_report(graph)
     return PathwayBuildResponse(
         status="ready",
         parsedSources=parsed_sources,
         pathwayGraph=graph,
         sanityReport=final_sanity,
         buildSummary=(
-            f"Built a conservative pathway graph with {len(graph.normalized_entities)} entities, "
-            f"{len(graph.default_relations)} default relations, and "
+            f"Built a paper-grounded pathway demo with {len(graph.normalized_entities)} entities, "
+            f"{len(graph.default_relations)} visible relations, and "
             f"{final_sanity.summary.high_priority_issue_count} high-priority sanity findings."
         ),
         warnings=warnings,

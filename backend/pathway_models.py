@@ -97,6 +97,36 @@ EvidenceModality = Literal[
 EvidenceStrength = Literal["strong", "moderate", "weak"]
 PathwaySourceType = Literal["pubmed_url", "pmc_url", "pmcid", "raw_text"]
 PathwayFetchStatus = Literal["pending", "fetched", "failed"]
+SimpleClaimEntityType = Literal[
+    "protein",
+    "gene",
+    "small_molecule",
+    "complex",
+    "pathway",
+    "phenotype",
+    "other",
+]
+SimpleClaimInteractionType = Literal[
+    "activates",
+    "inhibits",
+    "binds",
+    "phosphorylates",
+    "upregulates",
+    "downregulates",
+    "associated_with",
+    "causes",
+    "suppresses",
+    "unknown",
+]
+SimpleClaimEvidenceLevel = Literal[
+    "human",
+    "in_vivo",
+    "in_vitro",
+    "in_silico",
+    "review",
+    "unknown",
+]
+SimpleClaimStrength = Literal["strong", "moderate", "weak", "uncertain"]
 
 
 class BaseModel(PydanticBaseModel):
@@ -121,6 +151,29 @@ class PathwayPaperSource(BaseModel):
     pmcid: str | None = None
     fetchStatus: PathwayFetchStatus | None = None
     fetchError: str | None = None
+
+
+class PathwayClaim(BaseModel):
+    source_entity: str
+    source_type: SimpleClaimEntityType
+    target_entity: str
+    target_type: SimpleClaimEntityType
+    interaction_type: SimpleClaimInteractionType
+    evidence_level: SimpleClaimEvidenceLevel
+    system_context: str | None = None
+    experiment_summary: str
+    claim_strength: SimpleClaimStrength
+    quoted_support: str
+
+
+class PathwayClaimExtraction(BaseModel):
+    paper_id: str
+    url: str | None = None
+    title: str
+    journal: str | None = None
+    publication_date: str | None = None
+    abstract: str | None = None
+    claims: list[PathwayClaim] = Field(default_factory=list)
 
 
 class EntityMention(BaseModel):
