@@ -191,13 +191,11 @@ describe('PathwayPanel', () => {
     });
 
     expect(screen.getByText('activates')).toBeInTheDocument();
-    expect(screen.getByText('Confidence 90% · strong evidence')).toBeInTheDocument();
+    expect(screen.getByText('TNF activates NF-kB · strong evidence')).toBeInTheDocument();
     expect(screen.getByText('Demo paper')).toBeInTheDocument();
     expect(screen.getByText('in vivo')).toBeInTheDocument();
-    expect(screen.getByText('current paper direct')).toBeInTheDocument();
-    expect(screen.getByText('Results')).toBeInTheDocument();
     expect(screen.getByText('In vivo challenge model')).toBeInTheDocument();
-    expect(screen.getByText('TNF increased NF-kB activation in vivo.')).toBeInTheDocument();
+    expect(screen.getByText('"TNF increased NF-kB activation in vivo."')).toBeInTheDocument();
     expect(screen.getByText('Edge Legend')).toBeInTheDocument();
     expect(screen.getByText('Activates')).toBeInTheDocument();
     expect(screen.getByText('Inhibits')).toBeInTheDocument();

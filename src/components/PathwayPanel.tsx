@@ -741,6 +741,7 @@ export function PathwayPanel({
             (() => {
               const bestEvidence = getBestRelationEvidence(graph, edgeTooltip.relation);
               const evidenceCount = getRelationEvidence(graph, edgeTooltip.relation).length;
+              const subtitle = edgeTooltip.relation.summary.replace(/[:.;,\s]+$/, '');
 
               return (
                 <div
@@ -748,19 +749,16 @@ export function PathwayPanel({
                   style={{ left: edgeTooltip.x, top: edgeTooltip.y }}
                 >
                   <strong>{getPathwayRelationTypeLabel(edgeTooltip.relation.relation_type)}</strong>
-                  <span>{edgeTooltip.relation.summary}</span>
-                  <p>
-                    Confidence {Math.round(edgeTooltip.relation.confidence * 100)}%
+                  <span>
+                    {subtitle}
                     {edgeTooltip.relation.evidence_strength
                       ? ` · ${edgeTooltip.relation.evidence_strength} evidence`
                       : ''}
-                  </p>
+                  </span>
                   {bestEvidence ? (
                     <>
                       <div className="pathway-panel__edge-tooltip-badges">
                         <span>{formatPathwayEvidenceModality(bestEvidence.evidence_modality)}</span>
-                        <span>{bestEvidence.support_class.replace(/_/g, ' ')}</span>
-                        <span>{bestEvidence.section}</span>
                       </div>
                       <p className="pathway-panel__edge-tooltip-paper">
                         {bestEvidence.paper_title ?? graph.paper_metadata.title}
@@ -768,7 +766,7 @@ export function PathwayPanel({
                       {bestEvidence.experiment_context ? (
                         <p>{bestEvidence.experiment_context}</p>
                       ) : null}
-                      <p>{bestEvidence.supporting_snippet}</p>
+                      <p>"{bestEvidence.supporting_snippet}"</p>
                       {evidenceCount > 1 ? (
                         <p className="pathway-panel__edge-tooltip-more">
                           {evidenceCount} supporting evidence items linked to this edge
