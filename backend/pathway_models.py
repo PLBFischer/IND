@@ -24,21 +24,9 @@ NormalizationStatus = Literal[
 EntityType = Literal[
     "gene",
     "protein",
-    "cytokine",
-    "receptor",
-    "pathway",
-    "complex",
-    "cell_type",
-    "tissue",
     "small_molecule",
-    "drug",
+    "cell_state",
     "phenotype",
-    "disease",
-    "biomarker",
-    "process",
-    "family",
-    "modified_protein",
-    "other",
 ]
 RelationType = Literal[
     "activates",
@@ -91,10 +79,8 @@ SimpleClaimEntityType = Literal[
     "protein",
     "gene",
     "small_molecule",
-    "complex",
-    "pathway",
+    "cell_state",
     "phenotype",
-    "other",
 ]
 SimpleClaimInteractionType = Literal[
     "activates",

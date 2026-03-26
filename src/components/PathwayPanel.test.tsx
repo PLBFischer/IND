@@ -55,7 +55,7 @@ const node: BiologicalPathwayNode = {
       {
         entity_id: 'E1',
         canonical_name: 'TNF',
-        entity_type: 'cytokine',
+        entity_type: 'protein',
         entity_kind: 'simple_entity',
         aliases: [],
         source_mention_ids: [],
@@ -67,8 +67,8 @@ const node: BiologicalPathwayNode = {
       {
         entity_id: 'E2',
         canonical_name: 'NF-kB',
-        entity_type: 'pathway',
-        entity_kind: 'process_or_pathway',
+        entity_type: 'protein',
+        entity_kind: 'simple_entity',
         aliases: [],
         source_mention_ids: [],
         normalization_status: 'exact_normalized',

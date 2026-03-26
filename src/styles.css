@@ -2050,15 +2050,15 @@ button {
 }
 
 .pathway-panel__entity {
-  fill: #ffffff;
-  stroke: #30453b;
   stroke-width: 1.5;
 }
 
 .pathway-panel__entity-label {
   font-size: 10px;
+  font-weight: 700;
   fill: #162019;
   pointer-events: none;
+  dominant-baseline: middle;
 }
 
 .pathway-panel__edge-tooltip {

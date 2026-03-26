@@ -2500,12 +2500,22 @@ def simple_claim_entity_type_to_graph_entity_type(entity_type: str) -> str:
         "protein": "protein",
         "gene": "gene",
         "small_molecule": "small_molecule",
-        "complex": "complex",
-        "pathway": "pathway",
+        "complex": "protein",
+        "pathway": "phenotype",
+        "cytokine": "protein",
+        "receptor": "protein",
+        "cell_type": "cell_state",
+        "tissue": "cell_state",
+        "drug": "small_molecule",
         "phenotype": "phenotype",
-        "other": "other",
+        "disease": "phenotype",
+        "biomarker": "phenotype",
+        "process": "phenotype",
+        "family": "protein",
+        "modified_protein": "protein",
+        "other": "phenotype",
     }
-    return mapping.get(entity_type, "other")
+    return mapping.get(entity_type, "phenotype")
 
 
 def simple_claim_interaction_to_relation_type(interaction_type: str) -> str:
@@ -2775,9 +2785,19 @@ def merge_claim_extractions_into_graph(
 
         entity_id = f"E_{len(entities) + 1}"
         graph_entity_type = simple_claim_entity_type_to_graph_entity_type(entity_type)
-        entity_kind = "complex" if graph_entity_type == "complex" else (
-            "process_or_pathway" if graph_entity_type == "pathway" else "simple_entity"
-        )
+        normalized_entity_type = entity_type.lower()
+        if normalized_entity_type == "complex":
+            entity_kind = "complex"
+        elif normalized_entity_type in {"pathway", "process"}:
+            entity_kind = "process_or_pathway"
+        elif normalized_entity_type in {"cell_type", "tissue"}:
+            entity_kind = "cell_state"
+        elif normalized_entity_type == "family":
+            entity_kind = "family_or_class"
+        elif normalized_entity_type == "modified_protein":
+            entity_kind = "modified_form"
+        else:
+            entity_kind = "simple_entity"
         entities.append(
             NormalizedEntity(
                 entity_id=entity_id,
@@ -2920,11 +2940,7 @@ def prune_nonvisual_process_and_phenotype_edges(graph: PathwayGraph) -> PathwayG
         target_entity = entity_by_id.get(relation.target_entity_id)
         if not source_entity or not target_entity:
             return False
-        if relation.relation_type == "regulates_expression" and target_entity.entity_type in {
-            "phenotype",
-            "pathway",
-            "process",
-        }:
+        if relation.relation_type == "regulates_expression" and target_entity.entity_type == "phenotype":
             return False
         return True
 
@@ -2968,7 +2984,7 @@ def prune_auxiliary_small_molecule_nodes(graph: PathwayGraph) -> PathwayGraph:
     small_molecule_ids = [
         entity.entity_id
         for entity in graph.normalized_entities
-        if entity.entity_type in {"small_molecule", "drug"}
+        if entity.entity_type == "small_molecule"
     ]
     if len(small_molecule_ids) <= 1:
         return graph

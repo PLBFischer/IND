@@ -23,21 +23,9 @@ export type NormalizationStatus = (typeof NORMALIZATION_STATUS_OPTIONS)[number];
 export const ENTITY_TYPE_OPTIONS = [
   'gene',
   'protein',
-  'cytokine',
-  'receptor',
-  'pathway',
-  'complex',
-  'cell_type',
-  'tissue',
   'small_molecule',
-  'drug',
+  'cell_state',
   'phenotype',
-  'disease',
-  'biomarker',
-  'process',
-  'family',
-  'modified_protein',
-  'other',
 ] as const;
 
 export type EntityType = (typeof ENTITY_TYPE_OPTIONS)[number];

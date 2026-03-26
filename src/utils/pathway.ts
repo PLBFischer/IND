@@ -6,6 +6,7 @@ import type {
 import type {
   AggregatedRelation,
   EvidenceItem,
+  EntityType,
   PathwayGraph,
   PathwayQueryResponse,
   RelationType,
@@ -31,6 +32,15 @@ export type PathwayInteractionLegendItem = {
   className: string;
   markerId: string;
   edgeLabel?: string;
+};
+
+export type PathwayEntityStyle = {
+  shape: 'circle' | 'rect' | 'pill' | 'hexagon';
+  width: number;
+  height: number;
+  fill: string;
+  stroke: string;
+  radius?: number;
 };
 
 export const createEmptyPathwayNode = (
@@ -216,6 +226,62 @@ export const computePathwayLayout = (
       ];
     }),
   );
+};
+
+export const getPathwayEntityStyle = (entityType: EntityType): PathwayEntityStyle => {
+  switch (entityType) {
+    case 'protein':
+      return {
+        shape: 'pill',
+        width: 112,
+        height: 40,
+        fill: '#dbeafe',
+        stroke: '#2563eb',
+        radius: 16,
+      };
+    case 'small_molecule':
+      return {
+        shape: 'circle',
+        width: 54,
+        height: 54,
+        fill: '#dcfce7',
+        stroke: '#16a34a',
+      };
+    case 'gene':
+      return {
+        shape: 'rect',
+        width: 108,
+        height: 38,
+        fill: '#fef3c7',
+        stroke: '#ca8a04',
+      };
+    case 'cell_state':
+      return {
+        shape: 'rect',
+        width: 148,
+        height: 64,
+        fill: '#e5e7eb',
+        stroke: '#6b7280',
+        radius: 12,
+      };
+    case 'phenotype':
+      return {
+        shape: 'hexagon',
+        width: 126,
+        height: 46,
+        fill: '#fed7aa',
+        stroke: '#ea580c',
+      };
+    default:
+      return {
+        shape: 'pill',
+        width: 112,
+        height: 40,
+        fill: '#dbeafe',
+        stroke: '#2563eb',
+        radius: 16,
+      };
+  }
 };
 
 export const getRelationStyleClass = (

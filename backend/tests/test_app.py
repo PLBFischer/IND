@@ -339,7 +339,7 @@ def make_test_pathway_graph() -> PathwayGraph:
             NormalizedEntity(
                 entity_id="E_BC",
                 canonical_name="BC complex",
-                entity_type="complex",
+                entity_type="protein",
                 entity_kind="complex",
                 aliases=["B:C complex"],
                 source_mention_ids=[],
@@ -363,7 +363,7 @@ def make_test_pathway_graph() -> PathwayGraph:
             NormalizedEntity(
                 entity_id="E_pERK",
                 canonical_name="p-ERK",
-                entity_type="modified_protein",
+                entity_type="protein",
                 entity_kind="modified_form",
                 aliases=["phosphorylated ERK"],
                 source_mention_ids=[],
@@ -387,7 +387,7 @@ def make_test_pathway_graph() -> PathwayGraph:
             NormalizedEntity(
                 entity_id="E_MAPK_family",
                 canonical_name="MAPK family",
-                entity_type="family",
+                entity_type="protein",
                 entity_kind="family_or_class",
                 aliases=[],
                 source_mention_ids=[],
@@ -538,7 +538,7 @@ def test_apply_duplicate_entity_merges_combines_safe_duplicate_entities() -> Non
             NormalizedEntity(
                 entity_id="E_CAMP",
                 canonical_name="cyclic AMP",
-                entity_type="other",
+                entity_type="small_molecule",
                 entity_kind="simple_entity",
                 aliases=[],
                 source_mention_ids=[],

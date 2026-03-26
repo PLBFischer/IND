@@ -8,6 +8,7 @@ import {
   computePathwayLayout,
   formatPathwayEvidenceModality,
   getBestRelationEvidence,
+  getPathwayEntityStyle,
   getEntityNameById,
   getRelationById,
   getRelationEvidence,
@@ -63,6 +64,20 @@ const NETWORK_WIDTH = 560;
 const NETWORK_HEIGHT = 440;
 const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 2.4;
+
+const getHexagonPoints = (width: number, height: number) => {
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+  const shoulder = Math.min(20, width * 0.18);
+  return [
+    `${-halfWidth + shoulder},${-halfHeight}`,
+    `${halfWidth - shoulder},${-halfHeight}`,
+    `${halfWidth},0`,
+    `${halfWidth - shoulder},${halfHeight}`,
+    `${-halfWidth + shoulder},${halfHeight}`,
+    `${-halfWidth},0`,
+  ].join(' ');
+};
 
 const clampZoom = (value: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
 
@@ -582,15 +597,27 @@ export function PathwayPanel({
             {visibleRelations.map((relation) => {
               const source = nodePositions[relation.source_entity_id] ?? layout[relation.source_entity_id];
               const target = nodePositions[relation.target_entity_id] ?? layout[relation.target_entity_id];
+              const sourceEntity = graph.normalized_entities.find(
+                (entity) => entity.entity_id === relation.source_entity_id,
+              );
+              const targetEntity = graph.normalized_entities.find(
+                (entity) => entity.entity_id === relation.target_entity_id,
+              );
               if (!source || !target) {
+                return null;
+              }
+
+              if (!sourceEntity || !targetEntity) {
                 return null;
               }
 
               const dx = target.x - source.x;
               const dy = target.y - source.y;
               const length = Math.max(Math.hypot(dx, dy), 1);
-              const sourceRadius = 24;
-              const targetRadius = 30;
+              const sourceStyle = getPathwayEntityStyle(sourceEntity.entity_type);
+              const targetStyle = getPathwayEntityStyle(targetEntity.entity_type);
+              const sourceRadius = Math.max(sourceStyle.width, sourceStyle.height) / 2;
+              const targetRadius = Math.max(targetStyle.width, targetStyle.height) / 2;
               const startX = source.x + (dx / length) * sourceRadius;
               const startY = source.y + (dy / length) * sourceRadius;
               const endX = target.x - (dx / length) * targetRadius;
@@ -634,9 +661,20 @@ export function PathwayPanel({
             })}
             {Array.from(visibleEntityIds).map((entityId) => {
               const point = nodePositions[entityId] ?? layout[entityId];
+              const entity = graph.normalized_entities.find(
+                (candidate) => candidate.entity_id === entityId,
+              );
               if (!point) {
                 return null;
               }
+
+              if (!entity) {
+                return null;
+              }
+
+              const style = getPathwayEntityStyle(entity.entity_type);
+              const halfWidth = style.width / 2;
+              const halfHeight = style.height / 2;
 
               return (
                 <g
@@ -645,9 +683,39 @@ export function PathwayPanel({
                   className="pathway-panel__node"
                   onPointerDown={(event) => handleNodePointerDown(entityId, event)}
                 >
-                  <circle r={24} className="pathway-panel__entity" />
-                  <text className="pathway-panel__entity-label" textAnchor="middle" y={4}>
-                    {getEntityNameById(graph, entityId)}
+                  {style.shape === 'circle' ? (
+                    <circle
+                      r={style.width / 2}
+                      className="pathway-panel__entity"
+                      fill={style.fill}
+                      stroke={style.stroke}
+                    />
+                  ) : null}
+                  {style.shape === 'rect' || style.shape === 'pill' ? (
+                    <rect
+                      x={-halfWidth}
+                      y={-halfHeight}
+                      width={style.width}
+                      height={style.height}
+                      rx={style.radius ?? 0}
+                      ry={style.radius ?? 0}
+                      className="pathway-panel__entity"
+                      fill={style.fill}
+                      stroke={style.stroke}
+                    />
+                  ) : null}
+                  {style.shape === 'hexagon' ? (
+                    <polygon
+                      points={getHexagonPoints(style.width, style.height)}
+                      className="pathway-panel__entity"
+                      fill={style.fill}
+                      stroke={style.stroke}
+                    />
+                  ) : null}
+                  <text className="pathway-panel__entity-label" textAnchor="middle">
+                    <tspan x={0} dy="-0.2em">
+                      {getEntityNameById(graph, entityId)}
+                    </tspan>
                   </text>
                 </g>
               );

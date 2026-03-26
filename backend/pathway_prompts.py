@@ -56,10 +56,8 @@ Entity types:
 - protein
 - gene
 - small_molecule
-- complex
-- pathway
+- cell_state
 - phenotype
-- other
 
 Interaction types:
 - activates
@@ -117,6 +115,7 @@ Node-role guidance:
 - core mechanism node: target, mediator, signaling hub, or canonical pathway component that carries the biological story
 - downstream output node: a limited set of intuitive inflammatory genes/proteins/readouts that help the story land
 - phenotype/readout node: higher-level state or cell-state outcome; keep sparingly
+- cell-state node: cell type or contextual cellular state that usefully frames the mechanism
 - support/tool node: assay reagents, comparator compounds, rescue compounds, validation aids, or nodes included mainly to prove a mechanism rather than to tell the final story
 
 Role policy:
@@ -144,13 +143,13 @@ Strict curation rules:
 8. Exclude claims that are biologically true but visually unhelpful for a pathway demo.
 9. Exclude edges that duplicate the same idea at multiple granularities unless the finer granularity is necessary.
 10. Preserve at least one supporting paper_source_id and quote for every curated edge.
-11. If a pathway/process node is cleaner than several disconnected output nodes, prefer the pathway/process node.
+11. If a phenotype node is cleaner than several disconnected output nodes, prefer the phenotype node.
 12. If a family-level node such as PDE4 is cleaner than several isoforms and the isoforms are not individually central, prefer the family-level node.
 13. Prefer readable inflammatory or signaling axes such as TLR4 -> MyD88 -> NF-kB over a flat list of measured inflammatory changes when supported.
 14. Omit nodes that would make the graph feel like a safety deck, assay report, or supplementary figure dump.
 15. Do not mix family-level and subtype-level representations for the same target family in the final graph unless the subtype detail is essential. If you keep PDE4 as a node, do not separately keep PDE4B unless that distinction is central and worth the extra complexity.
 16. When a family node and a subtype node compete, choose one abstraction level and rewrite compatible claims to match it.
-17. Treat modified or subunit-specific labels such as NF-kB p65 as part of the broader pathway node when that yields a cleaner demo graph, unless the p65-specific distinction is itself central to the paper's mechanistic story.
+17. Treat modified or subunit-specific labels such as NF-kB p65 as part of the broader protein node when that yields a cleaner demo graph, unless the p65-specific distinction is itself central to the paper's mechanistic story.
 18. If a small-molecule or reagent node appears mainly as a supporting validation tool for a pathway branch rather than as a principal intervention, exclude it from the final graph.
 19. Prefer one dominant causal backbone with only a few side branches.
 
