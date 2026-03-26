@@ -76,6 +76,18 @@ type PanState = {
   hasMoved: boolean;
 };
 
+type ApiErrorDetail =
+  | string
+  | {
+      loc?: Array<string | number>;
+      msg?: string;
+      type?: string;
+    };
+
+type ApiErrorPayload = {
+  detail?: ApiErrorDetail | ApiErrorDetail[];
+};
+
 const INITIAL_NODE_POSITION = {
   x: 120,
   y: 120,
@@ -85,6 +97,45 @@ const DRAG_THRESHOLD_PX = 6;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.25;
 const SCHEDULER_API_BASE = import.meta.env.VITE_SCHEDULER_API_URL ?? '/api';
+
+const formatApiErrorDetail = (detail: ApiErrorPayload['detail']) => {
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail;
+  }
+
+  if (!Array.isArray(detail)) {
+    return null;
+  }
+
+  const messages = detail
+    .map((entry) => {
+      if (typeof entry === 'string') {
+        return entry.trim();
+      }
+
+      if (!entry || typeof entry !== 'object') {
+        return '';
+      }
+
+      const location = Array.isArray(entry.loc) ? entry.loc.join(' > ') : '';
+      const message = typeof entry.msg === 'string' ? entry.msg.trim() : '';
+
+      if (location && message) {
+        return `${location}: ${message}`;
+      }
+
+      return message || location;
+    })
+    .filter(Boolean);
+
+  return messages.length > 0 ? messages.join('\n') : null;
+};
+
+const getResponseErrorMessage = async (response: Response, fallback: string) => {
+  const payload = (await response.json().catch(() => null)) as ApiErrorPayload | null;
+  return formatApiErrorDetail(payload?.detail) ?? fallback;
+};
+
 type InteractionMode =
   | { type: 'connect'; nodeId: string }
   | { type: 'parallelize'; nodeId: string }
@@ -767,10 +818,7 @@ function App() {
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { detail?: string }
-          | null;
-        throw new Error(payload?.detail ?? 'The scheduler could not produce a plan.');
+        throw new Error(await getResponseErrorMessage(response, 'The scheduler could not produce a plan.'));
       }
 
       const payload = (await response.json()) as ScheduleResult;
@@ -839,19 +887,15 @@ function App() {
         body: JSON.stringify({
           budgetUsd,
           rejectedCandidateIds: nextRejectedProposalIds,
-          program,
-          personnel,
-          nodes: nextNodes,
-          edges: nextEdges,
+          ...buildAnalysisGraph(program, personnel, nextNodes, nextEdges),
         }),
         signal: controller.signal,
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { detail?: string }
-          | null;
-        throw new Error(payload?.detail ?? 'Accelerate could not produce a proposal.');
+        throw new Error(
+          await getResponseErrorMessage(response, 'Accelerate could not produce a proposal.'),
+        );
       }
 
       const payload = (await response.json()) as AccelerateResponse;
@@ -1031,10 +1075,9 @@ function App() {
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { detail?: string }
-          | null;
-        throw new Error(payload?.detail ?? 'Evidence query could not analyze the graph.');
+        throw new Error(
+          await getResponseErrorMessage(response, 'Evidence query could not analyze the graph.'),
+        );
       }
 
       const payload = (await response.json()) as EvidenceQueryResponse;
@@ -1078,10 +1121,7 @@ function App() {
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { detail?: string }
-          | null;
-        throw new Error(payload?.detail ?? 'Review could not analyze the graph.');
+        throw new Error(await getResponseErrorMessage(response, 'Review could not analyze the graph.'));
       }
 
       const payload = (await response.json()) as ReviewResponse;
@@ -1126,10 +1166,9 @@ function App() {
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { detail?: string }
-          | null;
-        throw new Error(payload?.detail ?? 'Risk scoring could not analyze the graph.');
+        throw new Error(
+          await getResponseErrorMessage(response, 'Risk scoring could not analyze the graph.'),
+        );
       }
 
       const payload = (await response.json()) as RiskScanResponse;
@@ -1183,10 +1222,9 @@ function App() {
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { detail?: string }
-          | null;
-        throw new Error(payload?.detail ?? 'Deep reasoning could not analyze this node.');
+        throw new Error(
+          await getResponseErrorMessage(response, 'Deep reasoning could not analyze this node.'),
+        );
       }
 
       const payload = (await response.json()) as DeepRiskResponse;
@@ -1272,10 +1310,7 @@ function App() {
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { detail?: string }
-          | null;
-        throw new Error(payload?.detail ?? 'Pathway build failed.');
+        throw new Error(await getResponseErrorMessage(response, 'Pathway build failed.'));
       }
 
       const payload = (await response.json()) as PathwayBuildResponse;
@@ -1338,10 +1373,7 @@ function App() {
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { detail?: string }
-          | null;
-        throw new Error(payload?.detail ?? 'Pathway query failed.');
+        throw new Error(await getResponseErrorMessage(response, 'Pathway query failed.'));
       }
 
       const payload = (await response.json()) as PathwayQueryResponse;
