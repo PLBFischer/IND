@@ -46,6 +46,20 @@ export type PathwayEntityStyle = {
   radius?: number;
 };
 
+const getPathwayHexagonPoints = (width: number, height: number): Point[] => {
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+  const shoulder = Math.min(20, width * 0.18);
+  return [
+    { x: -halfWidth + shoulder, y: -halfHeight },
+    { x: halfWidth - shoulder, y: -halfHeight },
+    { x: halfWidth, y: 0 },
+    { x: halfWidth - shoulder, y: halfHeight },
+    { x: -halfWidth + shoulder, y: halfHeight },
+    { x: -halfWidth, y: 0 },
+  ];
+};
+
 export const createEmptyPathwayNode = (
   id: string,
   title: string,
@@ -421,6 +435,58 @@ export const getPathwayEntityStyle = (entityType: EntityType): PathwayEntityStyl
         radius: 16,
       };
   }
+};
+
+export const getPathwayEntityBoundaryOffset = (
+  style: PathwayEntityStyle,
+  deltaX: number,
+  deltaY: number,
+) => {
+  const length = Math.hypot(deltaX, deltaY);
+  if (length <= 0.0001) {
+    return 0;
+  }
+
+  const dirX = deltaX / length;
+  const dirY = deltaY / length;
+  const halfWidth = style.width / 2;
+  const halfHeight = style.height / 2;
+
+  if (style.shape === 'circle') {
+    return halfWidth;
+  }
+
+  if (style.shape === 'rect' || style.shape === 'pill') {
+    const scaleX = Math.abs(dirX) > 0.0001 ? halfWidth / Math.abs(dirX) : Number.POSITIVE_INFINITY;
+    const scaleY = Math.abs(dirY) > 0.0001 ? halfHeight / Math.abs(dirY) : Number.POSITIVE_INFINITY;
+    return Math.min(scaleX, scaleY);
+  }
+
+  if (style.shape === 'hexagon') {
+    const points = getPathwayHexagonPoints(style.width, style.height);
+    let closest = Number.POSITIVE_INFINITY;
+
+    for (let index = 0; index < points.length; index += 1) {
+      const first = points[index];
+      const second = points[(index + 1) % points.length];
+      const edgeX = second.x - first.x;
+      const edgeY = second.y - first.y;
+      const determinant = dirX * edgeY - dirY * edgeX;
+      if (Math.abs(determinant) < 0.0001) {
+        continue;
+      }
+
+      const t = (first.x * edgeY - first.y * edgeX) / determinant;
+      const u = (first.x * dirY - first.y * dirX) / determinant;
+      if (t >= 0 && u >= 0 && u <= 1) {
+        closest = Math.min(closest, t);
+      }
+    }
+
+    return Number.isFinite(closest) ? closest : Math.max(halfWidth, halfHeight);
+  }
+
+  return Math.max(halfWidth, halfHeight);
 };
 
 export const getRelationStyleClass = (

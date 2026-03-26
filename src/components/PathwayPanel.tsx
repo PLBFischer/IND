@@ -9,6 +9,7 @@ import {
   PATHWAY_INTERACTION_LEGEND,
   computePathwayLayout,
   formatPathwayEvidenceModality,
+  getPathwayEntityBoundaryOffset,
   getBestRelationEvidence,
   getPathwayEntityStyle,
   getEntityNameById,
@@ -63,6 +64,7 @@ const NETWORK_WIDTH = PATHWAY_LAYOUT_WIDTH;
 const NETWORK_HEIGHT = PATHWAY_LAYOUT_HEIGHT;
 const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 2.4;
+const EDGE_NODE_GAP = 6;
 
 const getHexagonPoints = (width: number, height: number) => {
   const halfWidth = width / 2;
@@ -591,12 +593,16 @@ export function PathwayPanel({
               const length = Math.max(Math.hypot(dx, dy), 1);
               const sourceStyle = getPathwayEntityStyle(sourceEntity.entity_type);
               const targetStyle = getPathwayEntityStyle(targetEntity.entity_type);
-              const sourceRadius = Math.max(sourceStyle.width, sourceStyle.height) / 2;
-              const targetRadius = Math.max(targetStyle.width, targetStyle.height) / 2;
-              const startX = source.x + (dx / length) * sourceRadius;
-              const startY = source.y + (dy / length) * sourceRadius;
-              const endX = target.x - (dx / length) * targetRadius;
-              const endY = target.y - (dy / length) * targetRadius;
+              const dirX = dx / length;
+              const dirY = dy / length;
+              const sourceOffset =
+                getPathwayEntityBoundaryOffset(sourceStyle, dx, dy) + EDGE_NODE_GAP;
+              const targetOffset =
+                getPathwayEntityBoundaryOffset(targetStyle, -dx, -dy) + EDGE_NODE_GAP;
+              const startX = source.x + dirX * sourceOffset;
+              const startY = source.y + dirY * sourceOffset;
+              const endX = target.x - dirX * targetOffset;
+              const endY = target.y - dirY * targetOffset;
               const reverseRelation = visibleRelations.find(
                 (candidate) =>
                   candidate.source_entity_id === relation.target_entity_id &&
