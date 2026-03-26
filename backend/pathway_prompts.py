@@ -24,7 +24,7 @@ Rules:
 9. Prefer mechanistic claims that can later be assembled into a readable pathway story.
 10. Avoid clutter: skip redundant, low-value, or overly fine-grained claims that do not improve pathway understanding.
 11. Prefer claims that connect into a readable mechanistic story over isolated one-off facts.
-12. Return at most 24 claims across the full paper set.
+12. Return at most 36 claims across the full paper set.
 13. Prefer canonical biological entities as claim source/target names.
 14. Do not turn event phrases or paper-specific observations into entity names when a standard entity-plus-edge representation is possible.
 15. If the text describes phosphorylation, activation, inhibition, translocation, loss, or gain of a known entity, prefer the base entity as the node and encode the mechanism in interaction_type.
@@ -36,6 +36,8 @@ Rules:
 21. Avoid star-shaped outputs consisting mostly of intervention-to-readout edges when a more mechanistic intermediate-pathway representation is supported.
 22. If isoform-level detail is not central to the biological story, prefer a family-level or pathway-level abstraction that will later visualize more cleanly.
 23. If several candidate edges are all true but would overcrowd the graph, keep the ones that best preserve mechanistic readability.
+24. When multiple papers support adjacent parts of the same mechanism, retain enough claims to assemble a larger connected network rather than over-compressing to a minimal chain.
+25. When choosing among similarly supported claims, prefer edges that connect existing parts of the network over edges that create isolated leaves.
 
 Good candidate-claim qualities:
 - recognizable canonical entity names
@@ -103,13 +105,13 @@ You will be given:
 - source-paper metadata for those claims
 
 Your job:
-- convert the candidate claims into a clean, compelling, presentation-ready pathway graph
+- convert the candidate claims into a connected, evidence-grounded pathway graph that is useful for interactive exploration
 - behave like an expert scientific editor and visualization-minded curator, not a literal extractor
 - produce the graph that best communicates the biological story
 - assign an implicit role to each candidate node before deciding whether to keep it
 
 Primary goal:
-- output the pathway graph that a thoughtful human would choose for clear scientific communication
+- output the pathway graph that a thoughtful human would choose to communicate the biology clearly while preserving meaningful queryable structure
 
 Node-role guidance:
 - core mechanism node: target, mediator, signaling hub, or canonical pathway component that carries the biological story
@@ -120,17 +122,18 @@ Node-role guidance:
 
 Role policy:
 1. Prefer core mechanism nodes.
-2. Keep only a small number of downstream output nodes.
+2. Keep only the downstream output nodes that materially strengthen the network story or query utility.
 3. Keep phenotype/readout nodes only when they materially improve the final visualization.
 4. Usually exclude support/tool nodes from the final graph unless they are central to the biological story itself.
 
 Design goals:
 1. Prefer a connected mechanistic story over a larger but noisier graph.
-2. Prefer 6-12 nodes and roughly 6-14 edges unless the evidence strongly demands otherwise.
-3. Prefer canonical, intuitive labels over assay-specific or paper-specific phrasing.
-4. Prefer a few central mechanistic intermediates over many direct intervention-to-readout edges.
-5. Prefer graph shapes that are easy to visually follow.
-6. Exclude findings that are not part of the biological pathway story.
+2. Prefer one connected network with a main mechanistic backbone plus a limited number of well-supported side branches.
+3. Prefer approximately 10-20 nodes and 12-28 edges when the evidence supports that level of complexity; compress below that only when the graph would otherwise become repetitive or noisy.
+4. Prefer canonical, intuitive labels over assay-specific or paper-specific phrasing.
+5. Prefer central mechanistic intermediates over many direct intervention-to-readout edges.
+6. Prefer graph structures that are easy to visually follow and that support meaningful subgraph queries.
+7. Exclude findings that are not part of the biological pathway story.
 
 Strict curation rules:
 1. Use only the provided candidate claims. Do not invent unsupported biology.
@@ -151,7 +154,9 @@ Strict curation rules:
 16. When a family node and a subtype node compete, choose one abstraction level and rewrite compatible claims to match it.
 17. Treat modified or subunit-specific labels such as NF-kB p65 as part of the broader protein node when that yields a cleaner graph, unless the p65-specific distinction is itself central to the paper's mechanistic story.
 18. If a small-molecule or reagent node appears mainly as a supporting validation tool for a pathway branch rather than as a principal intervention, exclude it from the final graph.
-19. Prefer one dominant causal backbone with only a few side branches.
+19. Prefer branches that reconnect to the core network or share intermediates over one-off terminal leaves.
+20. When choosing between similarly supported claims, prefer edges that connect two existing regions of the graph over edges that add a new singleton leaf.
+21. Keep only a small number of terminal readout leaves unless those leaves are central biological outcomes that a biologist would expect to inspect directly.
 
 Output requirements:
 1. Output only the final curated claims to keep in the graph.
@@ -170,7 +175,7 @@ Output requirements:
    - quoted_support
    - selection_rationale
 3. graph_summary should explain the visual story in 1-3 sentences.
-4. Keep the final graph compact, coherent, and readable.
+4. Keep the final graph coherent, readable, and rich enough to support meaningful subgraph exploration.
 5. Do not describe the graph as a demo, prototype, or mockup in graph_summary.
 6. Output valid JSON only."""
 

@@ -2611,7 +2611,7 @@ def call_multi_paper_claim_extraction_model(
         instructions=EXTRACTION_SYSTEM_PROMPT,
         input_payload=build_multi_paper_claim_extraction_input(payload, full_text_sources),
         response_model=MultiPaperPathwayClaimExtraction,
-        max_output_tokens=12000,
+        max_output_tokens=16000,
     )
 
 
