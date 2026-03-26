@@ -4,6 +4,8 @@ import type { BiologicalPathwayNode } from '../types/graph';
 import type { AggregatedRelation, EntityType } from '../types/pathway';
 import type { PathwayQueryResponse } from '../types/pathway';
 import {
+  PATHWAY_LAYOUT_HEIGHT,
+  PATHWAY_LAYOUT_WIDTH,
   PATHWAY_INTERACTION_LEGEND,
   computePathwayLayout,
   formatPathwayEvidenceModality,
@@ -57,8 +59,8 @@ type PinchState = {
 
 type InteractionState = NodeDragState | PanState | PinchState | null;
 
-const NETWORK_WIDTH = 560;
-const NETWORK_HEIGHT = 440;
+const NETWORK_WIDTH = PATHWAY_LAYOUT_WIDTH;
+const NETWORK_HEIGHT = PATHWAY_LAYOUT_HEIGHT;
 const MIN_ZOOM = 0.6;
 const MAX_ZOOM = 2.4;
 

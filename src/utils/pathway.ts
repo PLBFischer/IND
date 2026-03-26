@@ -17,6 +17,9 @@ import { isExperimentNode, isPathwayNode } from './graph';
 
 type Point = { x: number; y: number };
 
+export const PATHWAY_LAYOUT_WIDTH = 760;
+export const PATHWAY_LAYOUT_HEIGHT = 560;
+
 export type PathwayVisibilityFilters = {
   strongEvidenceOnly: boolean;
   includeNondefaultRelations: boolean;
@@ -210,18 +213,158 @@ export const computePathwayLayout = (
     return {};
   }
 
-  const radius = Math.max(140, entities.length * 20);
-  const centerX = 280;
-  const centerY = 220;
+  const visibleEntityIdSet = new Set(entities.map((entity) => entity.entity_id));
+  const relations = [
+    ...graph.default_relations,
+    ...graph.structural_relations,
+    ...graph.nondefault_relations,
+  ].filter(
+    (relation) =>
+      visibleEntityIdSet.has(relation.source_entity_id) &&
+      visibleEntityIdSet.has(relation.target_entity_id),
+  );
+
+  const outgoing = new Map<string, string[]>();
+  const incoming = new Map<string, string[]>();
+  const indegree = new Map<string, number>();
+  for (const entity of entities) {
+    outgoing.set(entity.entity_id, []);
+    incoming.set(entity.entity_id, []);
+    indegree.set(entity.entity_id, 0);
+  }
+
+  for (const relation of relations) {
+    outgoing.get(relation.source_entity_id)?.push(relation.target_entity_id);
+    incoming.get(relation.target_entity_id)?.push(relation.source_entity_id);
+    indegree.set(
+      relation.target_entity_id,
+      (indegree.get(relation.target_entity_id) ?? 0) + 1,
+    );
+  }
+
+  const seedBase = `${graph.paper_metadata.title}|${entities.map((entity) => entity.entity_id).join('|')}`;
+  const getSeededScore = (value: string) => {
+    let hash = 2166136261;
+    const input = `${seedBase}|${value}`;
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  };
+  const sortSeeded = (values: string[]) =>
+    [...values].sort((left, right) => {
+      const delta = getSeededScore(left) - getSeededScore(right);
+      return delta !== 0 ? delta : left.localeCompare(right);
+    });
+
+  const queue = sortSeeded(
+    entities
+      .filter((entity) => (indegree.get(entity.entity_id) ?? 0) === 0)
+      .map((entity) => entity.entity_id),
+  );
+  const ranks = new Map<string, number>();
+  const visited = new Set<string>();
+
+  while (queue.length > 0) {
+    const entityId = queue.shift();
+    if (!entityId || visited.has(entityId)) {
+      continue;
+    }
+
+    visited.add(entityId);
+    const parentRank = Math.max(
+      -1,
+      ...(incoming.get(entityId) ?? [])
+        .filter((parentId) => ranks.has(parentId))
+        .map((parentId) => ranks.get(parentId) ?? 0),
+    );
+    ranks.set(entityId, parentRank + 1);
+
+    for (const childId of sortSeeded(outgoing.get(entityId) ?? [])) {
+      indegree.set(childId, Math.max(0, (indegree.get(childId) ?? 0) - 1));
+      if ((indegree.get(childId) ?? 0) === 0) {
+        queue.push(childId);
+      }
+    }
+  }
+
+  for (const entityId of sortSeeded(entities.map((entity) => entity.entity_id))) {
+    if (ranks.has(entityId)) {
+      continue;
+    }
+
+    const parentRank = Math.max(
+      -1,
+      ...(incoming.get(entityId) ?? []).map((parentId) => ranks.get(parentId) ?? 0),
+    );
+    ranks.set(entityId, parentRank + 1);
+  }
+
+  const layers = new Map<number, string[]>();
+  for (const entity of entities) {
+    const rank = ranks.get(entity.entity_id) ?? 0;
+    layers.set(rank, [...(layers.get(rank) ?? []), entity.entity_id]);
+  }
+
+  const positionedY = new Map<string, number>();
+  const orderedLayers = [...layers.entries()].sort(([left], [right]) => left - right);
+  const maxLayerSize = Math.max(...orderedLayers.map(([, ids]) => ids.length), 1);
+  const topPadding = 56;
+  const bottomPadding = 56;
+  const leftPadding = 72;
+  const rightPadding = 72;
+  const usableHeight = PATHWAY_LAYOUT_HEIGHT - topPadding - bottomPadding;
+  const usableWidth = PATHWAY_LAYOUT_WIDTH - leftPadding - rightPadding;
+
+  for (const [rank, entityList] of orderedLayers) {
+    const orderedEntityIds = [...entityList].sort((left, right) => {
+      const leftParents = incoming.get(left) ?? [];
+      const rightParents = incoming.get(right) ?? [];
+      const leftBarycenter =
+        leftParents.length > 0
+          ? leftParents.reduce((sum, parentId) => sum + (positionedY.get(parentId) ?? usableHeight / 2), 0) /
+            leftParents.length
+          : usableHeight / 2;
+      const rightBarycenter =
+        rightParents.length > 0
+          ? rightParents.reduce((sum, parentId) => sum + (positionedY.get(parentId) ?? usableHeight / 2), 0) /
+            rightParents.length
+          : usableHeight / 2;
+
+      if (Math.abs(leftBarycenter - rightBarycenter) > 1) {
+        return leftBarycenter - rightBarycenter;
+      }
+
+      return getSeededScore(left) - getSeededScore(right);
+    });
+
+    const verticalStep = usableHeight / Math.max(orderedEntityIds.length - 1, 1);
+    orderedEntityIds.forEach((entityId, index) => {
+      const y =
+        orderedEntityIds.length === 1
+          ? topPadding + usableHeight / 2
+          : topPadding + index * verticalStep;
+      positionedY.set(entityId, y);
+    });
+
+    layers.set(rank, orderedEntityIds);
+  }
+
+  const maxRank = Math.max(...orderedLayers.map(([rank]) => rank), 0);
 
   return Object.fromEntries(
-    entities.map((entity, index) => {
-      const angle = (Math.PI * 2 * index) / entities.length - Math.PI / 2;
+    entities.map((entity) => {
+      const rank = ranks.get(entity.entity_id) ?? 0;
+      const x =
+        maxRank === 0
+          ? PATHWAY_LAYOUT_WIDTH / 2
+          : leftPadding + (rank / maxRank) * usableWidth;
       return [
         entity.entity_id,
         {
-          x: centerX + Math.cos(angle) * radius,
-          y: centerY + Math.sin(angle) * radius,
+          x,
+          y: positionedY.get(entity.entity_id) ?? PATHWAY_LAYOUT_HEIGHT / 2,
         },
       ];
     }),
