@@ -45,21 +45,11 @@ export type EntityType = (typeof ENTITY_TYPE_OPTIONS)[number];
 export const RELATION_TYPE_OPTIONS = [
   'activates',
   'inhibits',
-  'increases',
-  'decreases',
   'binds',
   'phosphorylates',
-  'dephosphorylates',
-  'associated_with',
-  'upstream_of',
-  'downstream_of',
-  'component_of',
-  'has_component',
-  'modified_form_of',
-  'active_state_of',
-  'inactive_state_of',
-  'same_as_candidate',
-  'other',
+  'catalyzes',
+  'regulates_expression',
+  'modulates',
 ] as const;
 
 export type RelationType = (typeof RELATION_TYPE_OPTIONS)[number];

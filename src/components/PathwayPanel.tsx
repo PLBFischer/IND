@@ -12,6 +12,7 @@ import {
   getRelationById,
   getRelationEvidence,
   getPathwayRelationInteractionClass,
+  getPathwayRelationEdgeLabel,
   getPathwayRelationMarkerId,
   getPathwayRelationTypeLabel,
   getRelationStyleClass,
@@ -547,7 +548,7 @@ export function PathwayPanel({
           >
             <defs>
               <marker
-                id="pathway-edge-arrow-dark"
+                id="pathway-edge-arrow"
                 markerWidth="10"
                 markerHeight="10"
                 refX="7"
@@ -558,40 +559,7 @@ export function PathwayPanel({
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="#364148" />
               </marker>
               <marker
-                id="pathway-edge-arrow-green"
-                markerWidth="10"
-                markerHeight="10"
-                refX="7"
-                refY="5"
-                orient="auto"
-                markerUnits="userSpaceOnUse"
-              >
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6b45" />
-              </marker>
-              <marker
-                id="pathway-edge-arrow-blue"
-                markerWidth="10"
-                markerHeight="10"
-                refX="7"
-                refY="5"
-                orient="auto"
-                markerUnits="userSpaceOnUse"
-              >
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="#2457a6" />
-              </marker>
-              <marker
-                id="pathway-edge-arrow-gray"
-                markerWidth="10"
-                markerHeight="10"
-                refX="7"
-                refY="5"
-                orient="auto"
-                markerUnits="userSpaceOnUse"
-              >
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="#667180" />
-              </marker>
-              <marker
-                id="pathway-edge-bar-red"
+                id="pathway-edge-bar"
                 markerWidth="12"
                 markerHeight="12"
                 refX="9"
@@ -599,18 +567,7 @@ export function PathwayPanel({
                 orient="auto"
                 markerUnits="userSpaceOnUse"
               >
-                <path d="M 9 0 L 9 12" stroke="#902d2d" strokeWidth="2" />
-              </marker>
-              <marker
-                id="pathway-edge-diamond-slate"
-                markerWidth="11"
-                markerHeight="11"
-                refX="8"
-                refY="5.5"
-                orient="auto"
-                markerUnits="userSpaceOnUse"
-              >
-                <path d="M 0 5.5 L 4 0 L 8 5.5 L 4 11 z" fill="#556779" />
+                <path d="M 9 0 L 9 12" stroke="#364148" strokeWidth="2" />
               </marker>
             </defs>
             <rect
@@ -639,6 +596,9 @@ export function PathwayPanel({
               const endX = target.x - (dx / length) * targetRadius;
               const endY = target.y - (dy / length) * targetRadius;
               const path = `M ${startX} ${startY} L ${endX} ${endY}`;
+              const label = getPathwayRelationEdgeLabel(relation.relation_type);
+              const midX = (startX + endX) / 2;
+              const midY = (startY + endY) / 2;
               const isSelected = selectedRelationId === relation.relation_id;
 
               return (
@@ -650,6 +610,11 @@ export function PathwayPanel({
                     )} ${isSelected ? 'pathway-panel__edge--selected' : ''}`}
                     markerEnd={getPathwayRelationMarkerId(relation.relation_type)}
                   />
+                  {label ? (
+                    <text x={midX} y={midY - 8} textAnchor="middle" className="pathway-panel__edge-label">
+                      {label}
+                    </text>
+                  ) : null}
                   <path
                     d={path}
                     className="pathway-panel__edge-hit"
@@ -743,6 +708,7 @@ export function PathwayPanel({
                   <span
                     className={`pathway-panel__legend-line ${item.className}`}
                     data-marker-id={item.markerId}
+                    data-edge-label={item.edgeLabel ?? undefined}
                   />
                   <div>
                     <strong>{item.label}</strong>

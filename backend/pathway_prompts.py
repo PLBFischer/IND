@@ -52,11 +52,9 @@ Interaction types:
 - inhibits
 - binds
 - phosphorylates
-- upregulates
-- downregulates
-- associated_with
-- causes
-- suppresses
+- catalyzes
+- regulates_expression
+- modulates
 - unknown
 
 Evidence levels:
@@ -127,7 +125,7 @@ CANONICAL LABELING AND EVENT DECOMPOSITION
    - and one or more typed relations encoding the mechanism
 19. When the evidence supports it, rewrite event-like labels into cleaner graph structure. Example: prefer node "NF-kB p65" plus a phosphorylation or activation edge over node "NF-kB p65 phosphorylation and nuclear translocation".
 20. Do not keep long event-summary node labels merely because they appeared in the paper text if a standard pathway representation is possible.
-21. Use relation_type to carry mechanistic meaning whenever possible, especially for phosphorylates, activates, inhibits, increases, decreases, and associated_with.
+21. Use relation_type to carry mechanistic meaning whenever possible, especially for phosphorylates, activates, inhibits, catalyzes, regulates_expression, and modulates.
 22. If a modified form is genuinely the biological object being discussed, represent it as a modified_form entity with an explicit structural link to its base entity rather than collapsing entity and event into one label.
 23. Avoid broad, opaque, or experiment-specific canonical names such as "TNF-induced cAMP loss" or "MyD88 pathway genes" unless the source evidence leaves no cleaner grounded alternative.
 24. Prefer shorter, reusable canonical labels that would make sense outside the specific paper context.

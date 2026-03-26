@@ -30,6 +30,7 @@ export type PathwayInteractionLegendItem = {
   detail: string;
   className: string;
   markerId: string;
+  edgeLabel?: string;
 };
 
 export const createEmptyPathwayNode = (
@@ -235,100 +236,109 @@ export const getRelationStyleClass = (
 export const getPathwayRelationInteractionClass = (relationType: RelationType) => {
   switch (relationType) {
     case 'activates':
-    case 'increases':
-      return 'pathway-panel__edge--positive';
+      return 'pathway-panel__edge--activates';
     case 'inhibits':
-    case 'decreases':
-      return 'pathway-panel__edge--negative';
+      return 'pathway-panel__edge--inhibits';
     case 'phosphorylates':
-    case 'dephosphorylates':
-      return 'pathway-panel__edge--modification';
+      return 'pathway-panel__edge--phosphorylates';
     case 'binds':
-    case 'associated_with':
-      return 'pathway-panel__edge--association';
-    case 'component_of':
-    case 'has_component':
-    case 'modified_form_of':
-    case 'active_state_of':
-    case 'inactive_state_of':
-    case 'same_as_candidate':
-      return 'pathway-panel__edge--structural-interaction';
+      return 'pathway-panel__edge--binds';
+    case 'catalyzes':
+      return 'pathway-panel__edge--catalyzes';
+    case 'regulates_expression':
+      return 'pathway-panel__edge--regulates-expression';
+    case 'modulates':
+      return 'pathway-panel__edge--modulates';
     default:
-      return 'pathway-panel__edge--context';
+      return 'pathway-panel__edge--activates';
   }
 };
 
 export const getPathwayRelationMarkerId = (relationType: RelationType) => {
   switch (relationType) {
     case 'inhibits':
-    case 'decreases':
-      return 'url(#pathway-edge-bar-red)';
+      return 'url(#pathway-edge-bar)';
     case 'activates':
-    case 'increases':
-      return 'url(#pathway-edge-arrow-green)';
     case 'phosphorylates':
-    case 'dephosphorylates':
-      return 'url(#pathway-edge-arrow-blue)';
+    case 'catalyzes':
+    case 'regulates_expression':
+    case 'modulates':
+      return 'url(#pathway-edge-arrow)';
     case 'binds':
-    case 'associated_with':
-      return 'url(#pathway-edge-arrow-gray)';
-    case 'component_of':
-    case 'has_component':
-    case 'modified_form_of':
-    case 'active_state_of':
-    case 'inactive_state_of':
-    case 'same_as_candidate':
-      return 'url(#pathway-edge-diamond-slate)';
+      return undefined;
     default:
-      return 'url(#pathway-edge-arrow-dark)';
+      return 'url(#pathway-edge-arrow)';
   }
 };
 
 export const getPathwayRelationTypeLabel = (relationType: RelationType) =>
   relationType.replace(/_/g, ' ');
 
+export const getPathwayRelationEdgeLabel = (relationType: RelationType) => {
+  switch (relationType) {
+    case 'phosphorylates':
+      return 'P';
+    case 'catalyzes':
+      return 'cat';
+    case 'regulates_expression':
+      return 'expr';
+    default:
+      return null;
+  }
+};
+
 export const PATHWAY_INTERACTION_LEGEND: PathwayInteractionLegendItem[] = [
   {
-    key: 'positive',
-    label: 'Activates / increases',
-    detail: 'Arrow head',
-    className: 'pathway-panel__edge--positive',
-    markerId: 'pathway-edge-arrow-green',
+    key: 'activates',
+    label: 'Activates',
+    detail: 'Solid line with arrowhead',
+    className: 'pathway-panel__edge--activates',
+    markerId: 'pathway-edge-arrow',
   },
   {
-    key: 'negative',
-    label: 'Inhibits / decreases',
-    detail: 'Flat bar',
-    className: 'pathway-panel__edge--negative',
-    markerId: 'pathway-edge-bar-red',
+    key: 'inhibits',
+    label: 'Inhibits',
+    detail: 'Solid line with flat bar',
+    className: 'pathway-panel__edge--inhibits',
+    markerId: 'pathway-edge-bar',
   },
   {
-    key: 'modification',
-    label: 'Phosphorylation state',
-    detail: 'Blue arrow',
-    className: 'pathway-panel__edge--modification',
-    markerId: 'pathway-edge-arrow-blue',
+    key: 'phosphorylates',
+    label: 'Phosphorylates',
+    detail: 'Solid arrow with P label',
+    className: 'pathway-panel__edge--phosphorylates',
+    markerId: 'pathway-edge-arrow',
+    edgeLabel: 'P',
   },
   {
-    key: 'association',
-    label: 'Binding / association',
-    detail: 'Dashed arrow',
-    className: 'pathway-panel__edge--association',
-    markerId: 'pathway-edge-arrow-gray',
+    key: 'catalyzes',
+    label: 'Catalyzes',
+    detail: 'Solid arrow with cat label',
+    className: 'pathway-panel__edge--catalyzes',
+    markerId: 'pathway-edge-arrow',
+    edgeLabel: 'cat',
   },
   {
-    key: 'structural',
-    label: 'Component / state relation',
-    detail: 'Diamond head',
-    className: 'pathway-panel__edge--structural-interaction',
-    markerId: 'pathway-edge-diamond-slate',
+    key: 'binds',
+    label: 'Binds',
+    detail: 'Undirected solid line',
+    className: 'pathway-panel__edge--binds',
+    markerId: '',
   },
   {
-    key: 'context',
-    label: 'Context / ordering',
-    detail: 'Dashed arrow',
-    className: 'pathway-panel__edge--context',
-    markerId: 'pathway-edge-arrow-dark',
+    key: 'regulates_expression',
+    label: 'Regulates expression',
+    detail: 'Dashed arrow with expr label',
+    className: 'pathway-panel__edge--regulates-expression',
+    markerId: 'pathway-edge-arrow',
+    edgeLabel: 'expr',
+  },
+  {
+    key: 'modulates',
+    label: 'Modulates',
+    detail: 'Dashed arrow for indirect influence',
+    className: 'pathway-panel__edge--modulates',
+    markerId: 'pathway-edge-arrow',
   },
 ];
 

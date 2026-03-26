@@ -168,8 +168,9 @@ describe('PathwayPanel', () => {
     expect(screen.getByText('Results')).toBeInTheDocument();
     expect(screen.getByText('In vivo challenge model')).toBeInTheDocument();
     expect(screen.getByText('TNF increased NF-kB activation in vivo.')).toBeInTheDocument();
-    expect(screen.getByText('Activates / increases')).toBeInTheDocument();
-    expect(screen.getByText('Inhibits / decreases')).toBeInTheDocument();
+    expect(screen.getByText('Activates')).toBeInTheDocument();
+    expect(screen.getByText('Inhibits')).toBeInTheDocument();
+    expect(screen.getByText('Regulates expression')).toBeInTheDocument();
   });
 
   it('shows a clear-query control when a query response is active', () => {

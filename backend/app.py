@@ -2621,14 +2621,12 @@ def simple_claim_interaction_to_relation_type(interaction_type: str) -> str:
         "inhibits": "inhibits",
         "binds": "binds",
         "phosphorylates": "phosphorylates",
-        "upregulates": "increases",
-        "downregulates": "decreases",
-        "associated_with": "associated_with",
-        "causes": "associated_with",
-        "suppresses": "decreases",
-        "unknown": "other",
+        "catalyzes": "catalyzes",
+        "regulates_expression": "regulates_expression",
+        "modulates": "modulates",
+        "unknown": "modulates",
     }
-    return mapping.get(interaction_type, "other")
+    return mapping.get(interaction_type, "modulates")
 
 
 def simple_claim_strength_to_confidence(claim_strength: str) -> float:
@@ -2662,9 +2660,15 @@ def simple_claim_evidence_level_to_modality(evidence_level: str) -> str:
 
 
 def simple_claim_to_mechanistic_status(claim: PathwayClaim) -> str:
-    if claim.interaction_type in {"binds", "phosphorylates", "activates", "inhibits"}:
+    if claim.interaction_type in {
+        "binds",
+        "phosphorylates",
+        "activates",
+        "inhibits",
+        "catalyzes",
+    }:
         return "direct"
-    if claim.interaction_type in {"upregulates", "downregulates", "suppresses"}:
+    if claim.interaction_type == "regulates_expression":
         return "indirect"
     return "associative"
 
@@ -2675,11 +2679,9 @@ def simple_claim_to_effect_direction(claim: PathwayClaim) -> str:
         "inhibits": "inhibit",
         "binds": "bind",
         "phosphorylates": "activate",
-        "upregulates": "increase",
-        "downregulates": "decrease",
-        "associated_with": "associate",
-        "causes": "associate",
-        "suppresses": "decrease",
+        "catalyzes": "activate",
+        "regulates_expression": "increase",
+        "modulates": "associate",
         "unknown": "unknown",
     }
     return mapping.get(claim.interaction_type, "unknown")
@@ -2775,7 +2777,7 @@ def merge_claim_extractions_into_graph(
                 relation_type=simple_claim_interaction_to_relation_type(claim.interaction_type),
                 relation_category="interaction",
                 assertion_status="explicit",
-                direction="source_to_target",
+                direction="undirected" if claim.interaction_type == "binds" else "source_to_target",
                 support_class=simple_claim_to_support_class(claim),
                 mechanistic_status=simple_claim_to_mechanistic_status(claim),
                 evidence_modality=simple_claim_evidence_level_to_modality(claim.evidence_level),
@@ -3174,25 +3176,12 @@ def evidence_supports_default_admission(evidence: EvidenceItem) -> bool:
     return True
 
 
-def is_structural_relation(relation: AggregatedRelation) -> bool:
-    return relation.relation_category in {
-        "membership",
-        "modification",
-        "state_relation",
-        "equivalence_candidate",
-    }
-
-
 def apply_pathway_admission_policy(graph: PathwayGraph) -> PathwayGraph:
     evidence_by_id = {item.evidence_id: item for item in graph.evidence_items}
     admitted: list[AggregatedRelation] = []
     downgraded: list[AggregatedRelation] = list(graph.nondefault_relations)
 
     for relation in graph.default_relations:
-        if is_structural_relation(relation):
-            admitted.append(relation)
-            continue
-
         supporting_evidence = [
             evidence_by_id[evidence_id]
             for evidence_id in relation.evidence_ids
@@ -3232,18 +3221,6 @@ def apply_pathway_admission_policy(graph: PathwayGraph) -> PathwayGraph:
 
 def build_deterministic_sanity_report(graph: PathwayGraph) -> PathwaySanityReport:
     findings: list[PathwaySanityFinding] = []
-    relation_ids = {relation.relation_id for relation in graph.structural_relations}
-    entity_by_id = {entity.entity_id: entity for entity in graph.normalized_entities}
-    membership_targets = {
-        relation.target_entity_id
-        for relation in graph.structural_relations
-        if relation.relation_type == "component_of"
-    }
-    modified_targets = {
-        relation.source_entity_id
-        for relation in graph.structural_relations
-        if relation.relation_type in {"modified_form_of", "active_state_of", "inactive_state_of"}
-    }
 
     seen_surface_keys: dict[str, str] = {}
     for entity in graph.normalized_entities:
@@ -3263,34 +3240,6 @@ def build_deterministic_sanity_report(graph: PathwayGraph) -> PathwaySanityRepor
             )
         else:
             seen_surface_keys[surface_key] = entity.entity_id
-
-        if entity.entity_kind == "complex" and entity.entity_id not in membership_targets:
-            findings.append(
-                PathwaySanityFinding(
-                    finding_id=f"complex_{entity.entity_id}",
-                    severity="high",
-                    finding_type="complex_missing_membership",
-                    description=f"{entity.canonical_name} is a complex without explicit component membership.",
-                    related_entity_ids=[entity.entity_id],
-                    related_relation_ids=[],
-                    recommended_action="add membership relation",
-                    confidence=0.8,
-                )
-            )
-
-        if entity.entity_kind == "modified_form" and entity.entity_id not in modified_targets:
-            findings.append(
-                PathwaySanityFinding(
-                    finding_id=f"modified_{entity.entity_id}",
-                    severity="high",
-                    finding_type="modified_form_disconnected",
-                    description=f"{entity.canonical_name} is a modified form without a structural base link.",
-                    related_entity_ids=[entity.entity_id],
-                    related_relation_ids=[],
-                    recommended_action="add modified-form relation",
-                    confidence=0.8,
-                )
-            )
 
         if entity.entity_kind == "family_or_class":
             for other in graph.normalized_entities:

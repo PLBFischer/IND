@@ -2007,31 +2007,30 @@ button {
   stroke-width: 4;
 }
 
-.pathway-panel__edge--positive {
-  stroke: #1f6b45;
-}
-
-.pathway-panel__edge--negative {
-  stroke: #902d2d;
-}
-
-.pathway-panel__edge--modification {
-  stroke: #2457a6;
-}
-
-.pathway-panel__edge--association {
-  stroke: #667180;
-  stroke-dasharray: 6 4;
-}
-
-.pathway-panel__edge--structural-interaction {
-  stroke: #556779;
-  stroke-dasharray: 3 4;
-}
-
-.pathway-panel__edge--context {
+.pathway-panel__edge--activates,
+.pathway-panel__edge--inhibits,
+.pathway-panel__edge--phosphorylates,
+.pathway-panel__edge--catalyzes,
+.pathway-panel__edge--binds,
+.pathway-panel__edge--regulates-expression,
+.pathway-panel__edge--modulates {
   stroke: #364148;
+}
+
+.pathway-panel__edge--regulates-expression,
+.pathway-panel__edge--modulates {
   stroke-dasharray: 8 5;
+}
+
+.pathway-panel__edge-label {
+  font-size: 10px;
+  font-weight: 700;
+  fill: #364148;
+  paint-order: stroke;
+  stroke: rgba(250, 250, 251, 0.95);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  pointer-events: none;
 }
 
 .pathway-panel__edge-hit {
@@ -2167,24 +2166,36 @@ button {
   border-bottom: 5px solid transparent;
 }
 
-.pathway-panel__legend-line.pathway-panel__edge--negative::after {
+.pathway-panel__legend-line.pathway-panel__edge--inhibits::after {
   right: 0;
   top: -6px;
   width: 0;
   height: 12px;
-  border-left: 2px solid #902d2d;
+  border-left: 2px solid #364148;
   border-top: 0;
   border-bottom: 0;
 }
 
-.pathway-panel__legend-line.pathway-panel__edge--structural-interaction::after {
-  right: -2px;
-  top: -5px;
-  width: 8px;
-  height: 8px;
-  background: #556779;
-  border: 0;
-  transform: rotate(45deg);
+.pathway-panel__legend-line.pathway-panel__edge--binds::after {
+  display: none;
+}
+
+.pathway-panel__legend-line.pathway-panel__edge--regulates-expression,
+.pathway-panel__legend-line.pathway-panel__edge--modulates {
+  border-top-style: dashed;
+}
+
+.pathway-panel__legend-line[data-edge-label]::before {
+  content: attr(data-edge-label);
+  position: absolute;
+  top: -13px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  font-weight: 700;
+  color: #364148;
+  background: rgba(250, 250, 251, 0.96);
+  padding: 0 3px;
 }
 
 .pathway-panel__relation-list {
