@@ -1865,24 +1865,21 @@ button {
 
 .pathway-editor__status-grid div,
 .pathway-panel__query-summary,
-.pathway-panel__finding,
-.pathway-evidence-drawer__card {
+.pathway-panel__finding {
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.8);
   padding: 10px;
 }
 
 .pathway-editor__status-grid span,
-.pathway-panel__control span,
-.pathway-evidence-drawer__context {
+.pathway-panel__control span {
   font-size: 11px;
   color: var(--muted);
 }
 
 .pathway-editor__warnings p,
 .pathway-panel__query-summary p,
-.pathway-panel__finding p,
-.pathway-evidence-drawer__card p {
+.pathway-panel__finding p {
   margin: 0;
   font-size: 12px;
   color: var(--muted-strong);
@@ -1912,8 +1909,7 @@ button {
   align-items: flex-start;
 }
 
-.pathway-panel__header h2,
-.pathway-evidence-drawer__header h3 {
+.pathway-panel__header h2 {
   margin: 4px 0 0;
   font-size: 18px;
 }
@@ -2137,6 +2133,20 @@ button {
   align-items: center;
 }
 
+.pathway-panel__legend-swatch {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pathway-panel__legend-swatch svg {
+  width: 40px;
+  height: 40px;
+  overflow: visible;
+}
+
 .pathway-panel__legend-item div {
   display: flex;
   flex-direction: column;
@@ -2198,58 +2208,8 @@ button {
   padding: 0 3px;
 }
 
-.pathway-panel__relation-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.pathway-panel__relation-button {
-  border: 1px solid var(--border);
-  background: #fff;
-  padding: 8px 10px;
-  text-align: left;
-  font-size: 12px;
-}
-
 .pathway-panel__error {
   margin: 0;
   color: #8f2525;
   font-size: 12px;
-}
-
-.pathway-evidence-drawer {
-  border: 1px solid var(--border);
-  background: rgba(247, 248, 249, 0.85);
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.pathway-evidence-drawer--empty {
-  justify-content: center;
-  color: var(--muted);
-  min-height: 180px;
-}
-
-.pathway-evidence-drawer__header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.pathway-evidence-drawer__meta,
-.pathway-evidence-drawer__badges {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.pathway-evidence-drawer__meta span,
-.pathway-evidence-drawer__badges span {
-  padding: 3px 8px;
-  border: 1px solid var(--border);
-  font-size: 11px;
-  background: #fff;
 }

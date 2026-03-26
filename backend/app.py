@@ -3551,7 +3551,7 @@ def build_pathway_graph_with_llm(payload: PathwayBuildRequest) -> PathwayBuildRe
             parsedSources=parsed_sources,
             pathwayGraph=None,
             sanityReport=None,
-            buildSummary="Extraction completed but produced no demo-ready pathway claims.",
+            buildSummary="Extraction completed but produced no pathway claims suitable for the final graph.",
             warnings=warnings,
             errors=["No explicit paper-grounded claims were retained."],
         )
@@ -3568,7 +3568,7 @@ def build_pathway_graph_with_llm(payload: PathwayBuildRequest) -> PathwayBuildRe
                 if curated_claims.graph_summary and curated_claims.graph_summary.strip()
                 else ""
             )
-            + f"Built a paper-grounded pathway demo with {len(graph.normalized_entities)} entities, "
+            + f"Built a paper-grounded pathway graph with {len(graph.normalized_entities)} entities, "
             + f"{len(graph.default_relations)} visible relations, and "
             + f"{final_sanity.summary.high_priority_issue_count} high-priority sanity findings."
         ),

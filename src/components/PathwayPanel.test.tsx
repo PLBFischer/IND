@@ -118,7 +118,7 @@ const node: BiologicalPathwayNode = {
 };
 
 describe('PathwayPanel', () => {
-  it('renders evidence cards when a relation is selected', () => {
+  it('renders the minimal node-type legend', () => {
     render(
       <PathwayPanel
         node={node}
@@ -132,13 +132,15 @@ describe('PathwayPanel', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'TNF activates NF-kB.' }));
-
-    expect(screen.getByText('TNF increased NF-kB activation in vivo.')).toBeInTheDocument();
-    expect(screen.getByText('In vivo challenge model')).toBeInTheDocument();
+    expect(screen.getByText('Node Types')).toBeInTheDocument();
+    expect(screen.getByText('Protein')).toBeInTheDocument();
+    expect(screen.getByText('Small Molecule')).toBeInTheDocument();
+    expect(screen.getByText('Gene')).toBeInTheDocument();
+    expect(screen.getByText('Cell State')).toBeInTheDocument();
+    expect(screen.getByText('Phenotype')).toBeInTheDocument();
   });
 
-  it('shows the relation tooltip and edge legend', () => {
+  it('shows the relation tooltip without the old sidebar sections', () => {
     const { container } = render(
       <PathwayPanel
         node={node}
@@ -168,9 +170,11 @@ describe('PathwayPanel', () => {
     expect(screen.getByText('Results')).toBeInTheDocument();
     expect(screen.getByText('In vivo challenge model')).toBeInTheDocument();
     expect(screen.getByText('TNF increased NF-kB activation in vivo.')).toBeInTheDocument();
+    expect(screen.getByText('Edge Legend')).toBeInTheDocument();
     expect(screen.getByText('Activates')).toBeInTheDocument();
     expect(screen.getByText('Inhibits')).toBeInTheDocument();
-    expect(screen.getByText('Regulates expression')).toBeInTheDocument();
+    expect(screen.queryByText('Sanity')).not.toBeInTheDocument();
+    expect(screen.queryByText('Visible Relations')).not.toBeInTheDocument();
   });
 
   it('shows a clear-query control when a query response is active', () => {

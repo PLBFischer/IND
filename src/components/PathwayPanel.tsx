@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { BiologicalPathwayNode } from '../types/graph';
-import type { AggregatedRelation } from '../types/pathway';
+import type { AggregatedRelation, EntityType } from '../types/pathway';
 import type { PathwayQueryResponse } from '../types/pathway';
 import {
   PATHWAY_INTERACTION_LEGEND,
@@ -10,18 +10,15 @@ import {
   getBestRelationEvidence,
   getPathwayEntityStyle,
   getEntityNameById,
-  getRelationById,
   getRelationEvidence,
   getPathwayRelationInteractionClass,
   getPathwayRelationEdgeLabel,
   getPathwayRelationMarkerId,
   getPathwayRelationTypeLabel,
   getRelationStyleClass,
-  getSanityNoteSummary,
   getVisiblePathwayEntityIds,
   getVisiblePathwayRelations,
 } from '../utils/pathway';
-import { PathwayEvidenceDrawer } from './PathwayEvidenceDrawer';
 import { PathwayQueryBar } from './PathwayQueryBar';
 
 type Point = { x: number; y: number };
@@ -79,6 +76,38 @@ const getHexagonPoints = (width: number, height: number) => {
   ].join(' ');
 };
 
+const NODE_TYPE_LEGEND: Array<{
+  type: EntityType;
+  label: string;
+  detail: string;
+}> = [
+  {
+    type: 'protein',
+    label: 'Protein',
+    detail: 'Functional biomolecule',
+  },
+  {
+    type: 'small_molecule',
+    label: 'Small Molecule',
+    detail: 'Metabolite, messenger, or drug',
+  },
+  {
+    type: 'gene',
+    label: 'Gene',
+    detail: 'DNA-level transcriptional unit',
+  },
+  {
+    type: 'cell_state',
+    label: 'Cell State',
+    detail: 'Cell type or cellular context',
+  },
+  {
+    type: 'phenotype',
+    label: 'Phenotype',
+    detail: 'Higher-level outcome or process',
+  },
+];
+
 const clampZoom = (value: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
 
 const getDistance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -109,7 +138,6 @@ export function PathwayPanel({
   const [strongEvidenceOnly, setStrongEvidenceOnly] = useState(true);
   const [minConfidence, setMinConfidence] = useState(0.65);
   const [modality, setModality] = useState('all');
-  const [selectedRelationId, setSelectedRelationId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [viewport, setViewport] = useState({ x: 0, y: 0 });
   const [nodePositions, setNodePositions] = useState<Record<string, Point>>({});
@@ -121,6 +149,11 @@ export function PathwayPanel({
   const activePointersRef = useRef(new Map<number, Point>());
   const zoomRef = useRef(1);
   const viewportRef = useRef({ x: 0, y: 0 });
+  const clearQueryRef = useRef(onClearQuery);
+
+  useEffect(() => {
+    clearQueryRef.current = onClearQuery;
+  }, [onClearQuery]);
 
   const graph = node?.pathwayGraph ?? null;
   const visibleEntityIds = useMemo(
@@ -177,8 +210,6 @@ export function PathwayPanel({
     () => (graph ? computePathwayLayout(graph, visibleEntityIds) : {}),
     [graph, visibleEntityIds],
   );
-  const selectedRelation =
-    graph && selectedRelationId ? getRelationById(graph, selectedRelationId) : null;
 
   useEffect(() => {
     zoomRef.current = zoom;
@@ -192,6 +223,7 @@ export function PathwayPanel({
     setZoom(1);
     setViewport({ x: 0, y: 0 });
     setEdgeTooltip(null);
+    clearQueryRef.current();
   }, [node?.id]);
 
   useEffect(() => {
@@ -222,16 +254,6 @@ export function PathwayPanel({
       return next;
     });
   }, [layout, visibleEntityIds]);
-
-  useEffect(() => {
-    if (!selectedRelationId) {
-      return;
-    }
-
-    if (!visibleRelations.some((relation) => relation.relation_id === selectedRelationId)) {
-      setSelectedRelationId(null);
-    }
-  }, [selectedRelationId, visibleRelations]);
 
   useEffect(() => {
     const shell = networkShellRef.current;
@@ -626,7 +648,6 @@ export function PathwayPanel({
               const label = getPathwayRelationEdgeLabel(relation.relation_type);
               const midX = (startX + endX) / 2;
               const midY = (startY + endY) / 2;
-              const isSelected = selectedRelationId === relation.relation_id;
 
               return (
                 <g key={relation.relation_id}>
@@ -634,7 +655,7 @@ export function PathwayPanel({
                     d={path}
                     className={`${getRelationStyleClass(graph, relation.relation_id)} ${getPathwayRelationInteractionClass(
                       relation.relation_type,
-                    )} ${isSelected ? 'pathway-panel__edge--selected' : ''}`}
+                    )}`}
                     markerEnd={getPathwayRelationMarkerId(relation.relation_type)}
                   />
                   {label ? (
@@ -645,7 +666,13 @@ export function PathwayPanel({
                   <path
                     d={path}
                     className="pathway-panel__edge-hit"
-                    onClick={() => setSelectedRelationId(relation.relation_id)}
+                    onMouseEnter={(event) =>
+                      updateEdgeTooltip(relation, event.clientX, event.clientY)
+                    }
+                    onMouseMove={(event) =>
+                      updateEdgeTooltip(relation, event.clientX, event.clientY)
+                    }
+                    onMouseLeave={() => setEdgeTooltip(null)}
                     onPointerEnter={(event) =>
                       updateEdgeTooltip(relation, event.clientX, event.clientY)
                     }
@@ -769,7 +796,7 @@ export function PathwayPanel({
 
         <div className="pathway-panel__sidebar">
           <section className="pathway-panel__section">
-            <h3>Legend</h3>
+            <h3>Edge Legend</h3>
             <div className="pathway-panel__legend">
               {PATHWAY_INTERACTION_LEGEND.map((item) => (
                 <div key={item.key} className="pathway-panel__legend-item">
@@ -787,35 +814,60 @@ export function PathwayPanel({
             </div>
           </section>
           <section className="pathway-panel__section">
-            <h3>Sanity</h3>
-            <p>{getSanityNoteSummary(node.sanityReport)}</p>
-            {(node.sanityReport?.sanity_findings ?? []).slice(0, 5).map((finding) => (
-              <article key={finding.finding_id} className="pathway-panel__finding">
-                <strong>{finding.finding_type.replace(/_/g, ' ')}</strong>
-                <p>{finding.description}</p>
-              </article>
-            ))}
-          </section>
-          <section className="pathway-panel__section">
-            <h3>Visible Relations</h3>
-            <div className="pathway-panel__relation-list">
-              {visibleRelations.map((relation) => (
-                <button
-                  key={relation.relation_id}
-                  type="button"
-                  className="pathway-panel__relation-button"
-                  onClick={() => setSelectedRelationId(relation.relation_id)}
-                >
-                  {relation.summary}
-                </button>
-              ))}
+            <h3>Node Types</h3>
+            <div className="pathway-panel__legend">
+              {NODE_TYPE_LEGEND.map((item) => {
+                const style = getPathwayEntityStyle(item.type);
+                return (
+                  <div key={item.type} className="pathway-panel__legend-item">
+                    <span className="pathway-panel__legend-swatch">
+                      {style.shape === 'circle' ? (
+                        <svg viewBox="0 0 40 40" aria-hidden="true">
+                          <circle
+                            cx="20"
+                            cy="20"
+                            r="10"
+                            fill={style.fill}
+                            stroke={style.stroke}
+                            strokeWidth="1.5"
+                          />
+                        </svg>
+                      ) : null}
+                      {style.shape === 'rect' || style.shape === 'pill' ? (
+                        <svg viewBox="0 0 40 40" aria-hidden="true">
+                          <rect
+                            x={style.shape === 'pill' ? 6 : 7}
+                            y={style.shape === 'pill' ? 11 : 12}
+                            width={style.shape === 'pill' ? 28 : 26}
+                            height={style.shape === 'pill' ? 18 : 16}
+                            rx={style.shape === 'pill' ? 9 : style.radius ?? 0}
+                            ry={style.shape === 'pill' ? 9 : style.radius ?? 0}
+                            fill={style.fill}
+                            stroke={style.stroke}
+                            strokeWidth="1.5"
+                          />
+                        </svg>
+                      ) : null}
+                      {style.shape === 'hexagon' ? (
+                        <svg viewBox="0 0 40 40" aria-hidden="true">
+                          <polygon
+                            points="12,10 28,10 34,20 28,30 12,30 6,20"
+                            fill={style.fill}
+                            stroke={style.stroke}
+                            strokeWidth="1.5"
+                          />
+                        </svg>
+                      ) : null}
+                    </span>
+                    <div>
+                      <strong>{item.label}</strong>
+                      <span>{item.detail}</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </section>
-          <PathwayEvidenceDrawer
-            graph={graph}
-            relation={selectedRelation}
-            onClose={() => setSelectedRelationId(null)}
-          />
         </div>
       </div>
     </aside>

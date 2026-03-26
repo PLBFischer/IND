@@ -94,7 +94,7 @@ For each claim:
 
 Output valid JSON only."""
 
-CURATION_SYSTEM_PROMPT = """You are curating a biological pathway graph for visualization in a software demo for a biologist.
+CURATION_SYSTEM_PROMPT = """You are curating a biological pathway graph for a biologist.
 
 You will be given:
 - a corpus title
@@ -105,11 +105,11 @@ You will be given:
 Your job:
 - convert the candidate claims into a clean, compelling, presentation-ready pathway graph
 - behave like an expert scientific editor and visualization-minded curator, not a literal extractor
-- produce the graph that would make the strongest interactive demo
+- produce the graph that best communicates the biological story
 - assign an implicit role to each candidate node before deciding whether to keep it
 
 Primary goal:
-- output the pathway graph that a thoughtful human would choose for an appealing demo
+- output the pathway graph that a thoughtful human would choose for clear scientific communication
 
 Node-role guidance:
 - core mechanism node: target, mediator, signaling hub, or canonical pathway component that carries the biological story
@@ -135,12 +135,12 @@ Design goals:
 Strict curation rules:
 1. Use only the provided candidate claims. Do not invent unsupported biology.
 2. You may rewrite labels and choose higher-level abstractions when supported by the candidate claims.
-3. You may collapse isoform-specific targets into a family-level node if isoform detail is not essential to the demo story.
+3. You may collapse isoform-specific targets into a family-level node if isoform detail is not essential to the biological story.
 4. You may collapse multiple near-duplicate downstream outputs into a smaller representative set.
 5. Prefer mechanism-first chains such as intervention -> target -> pathway -> transcriptional outputs.
 6. Avoid star graphs centered on the intervention unless the paper truly contains no coherent pathway structure beyond that.
 7. Exclude safety pharmacology, PK, brain exposure, emesis, tolerability, behavioral assay, and off-target findings unless the user explicitly asked for those.
-8. Exclude claims that are biologically true but visually unhelpful for a pathway demo.
+8. Exclude claims that are biologically true but visually unhelpful for the pathway graph.
 9. Exclude edges that duplicate the same idea at multiple granularities unless the finer granularity is necessary.
 10. Preserve at least one supporting paper_source_id and quote for every curated edge.
 11. If a phenotype node is cleaner than several disconnected output nodes, prefer the phenotype node.
@@ -149,7 +149,7 @@ Strict curation rules:
 14. Omit nodes that would make the graph feel like a safety deck, assay report, or supplementary figure dump.
 15. Do not mix family-level and subtype-level representations for the same target family in the final graph unless the subtype detail is essential. If you keep PDE4 as a node, do not separately keep PDE4B unless that distinction is central and worth the extra complexity.
 16. When a family node and a subtype node compete, choose one abstraction level and rewrite compatible claims to match it.
-17. Treat modified or subunit-specific labels such as NF-kB p65 as part of the broader protein node when that yields a cleaner demo graph, unless the p65-specific distinction is itself central to the paper's mechanistic story.
+17. Treat modified or subunit-specific labels such as NF-kB p65 as part of the broader protein node when that yields a cleaner graph, unless the p65-specific distinction is itself central to the paper's mechanistic story.
 18. If a small-molecule or reagent node appears mainly as a supporting validation tool for a pathway branch rather than as a principal intervention, exclude it from the final graph.
 19. Prefer one dominant causal backbone with only a few side branches.
 
@@ -170,8 +170,9 @@ Output requirements:
    - quoted_support
    - selection_rationale
 3. graph_summary should explain the visual story in 1-3 sentences.
-4. Keep the final graph compact, coherent, and demo-friendly.
-5. Output valid JSON only."""
+4. Keep the final graph compact, coherent, and readable.
+5. Do not describe the graph as a demo, prototype, or mockup in graph_summary.
+6. Output valid JSON only."""
 
 AGGREGATION_SYSTEM_PROMPT = """You are a biomedical pathway graph construction and normalization engine.
 
