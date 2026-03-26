@@ -228,6 +228,12 @@ button {
   gap: 14px;
 }
 
+.program-context-panel__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .program-context-panel__section {
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.72);

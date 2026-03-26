@@ -1,10 +1,13 @@
 import { useState } from 'react';
+import { ImportPanel } from './ImportPanel';
 import type { Personnel, ProgramContext } from '../types/graph';
 
 type ProgramContextPanelProps = {
   program: ProgramContext;
   budgetUsd: number | null;
   personnel: Personnel[];
+  onExport: () => void;
+  onImport: (value: string) => string | null;
   onProgramChange: (updates: Partial<ProgramContext>) => void;
   onBudgetChange: (value: string) => void;
   onAddPerson: (name: string, hoursPerWeek: number) => void;
@@ -25,6 +28,8 @@ export function ProgramContextPanel({
   program,
   budgetUsd,
   personnel,
+  onExport,
+  onImport,
   onProgramChange,
   onBudgetChange,
   onAddPerson,
@@ -216,6 +221,13 @@ export function ProgramContextPanel({
               </ul>
             )}
           </section>
+
+          <div className="program-context-panel__actions">
+            <ImportPanel onApply={onImport} />
+            <button type="button" className="button" onClick={onExport}>
+              Export
+            </button>
+          </div>
         </div>
       ) : null}
     </aside>

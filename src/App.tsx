@@ -1565,8 +1565,6 @@ function App() {
 
           void requestReview();
         }}
-        onExport={handleExport}
-        onImport={handleImport}
         onAddExperimentNode={() => openCreateEditor('experiment')}
         onAddPathwayNode={() => openCreateEditor('biological_pathway')}
       />
@@ -1583,6 +1581,8 @@ function App() {
           program={program}
           budgetUsd={budgetUsd}
           personnel={personnel}
+          onExport={handleExport}
+          onImport={handleImport}
           onProgramChange={handleProgramChange}
           onBudgetChange={handleBudgetChange}
           onAddPerson={handleAddPerson}

@@ -1,5 +1,3 @@
-import { ImportPanel } from './ImportPanel';
-
 type ToolbarProps = {
   plannedCostDisplay: string;
   plannedDuration: string;
@@ -15,8 +13,6 @@ type ToolbarProps = {
   onAccelerate: () => void;
   onToggleEvidence: () => void;
   onToggleReview: () => void;
-  onExport: () => void;
-  onImport: (value: string) => string | null;
   onAddExperimentNode: () => void;
   onAddPathwayNode: () => void;
 };
@@ -36,8 +32,6 @@ export function Toolbar({
   onAccelerate,
   onToggleEvidence,
   onToggleReview,
-  onExport,
-  onImport,
   onAddExperimentNode,
   onAddPathwayNode,
 }: ToolbarProps) {
@@ -87,10 +81,6 @@ export function Toolbar({
           onClick={onToggleReview}
         >
           {isReviewing && isReviewOpen ? 'Reviewing...' : 'Review'}
-        </button>
-        <ImportPanel onApply={onImport} />
-        <button type="button" className="button" onClick={onExport}>
-          Export
         </button>
         <button type="button" className="button" onClick={onAddPathwayNode}>
           Add Pathway
