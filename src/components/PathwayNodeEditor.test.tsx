@@ -1,35 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { BiologicalPathwayNode, ExperimentNode } from '../types/graph';
+import type { BiologicalPathwayNode } from '../types/graph';
 import { PathwayNodeEditor } from './PathwayNodeEditor';
-
-const experimentNodes: ExperimentNode[] = [
-  {
-    id: 'exp_1',
-    nodeKind: 'experiment',
-    title: 'Rodent efficacy bridge',
-    type: 'efficacy',
-    objective: '',
-    procedureSummary: '',
-    successCriteria: '',
-    decisionSupported: '',
-    results: '',
-    operationalNotes: '',
-    cost: 0,
-    duration: 0,
-    workHoursPerWeek: 0,
-    parallelizationMultiplier: 1,
-    operators: [],
-    status: 'planned',
-    blockerPriority: 'supporting',
-    phase1Relevance: '',
-    indRelevance: '',
-    evidenceRefs: [],
-    linkedPathwayNodeIds: [],
-    x: 0,
-    y: 0,
-  },
-];
 
 const node: BiologicalPathwayNode = {
   id: 'path_1',
@@ -65,12 +37,14 @@ describe('PathwayNodeEditor', () => {
       <PathwayNodeEditor
         mode="edit"
         node={node}
-        experimentNodes={experimentNodes}
+        isConnectMode={false}
         isBuilding={false}
         buildError={null}
         onClose={vi.fn()}
         onSave={vi.fn()}
         onDelete={vi.fn()}
+        onStartConnect={vi.fn()}
+        onCancelConnect={vi.fn()}
         onBuild={onBuild}
         onOpenExplorer={vi.fn()}
       />,
@@ -83,7 +57,7 @@ describe('PathwayNodeEditor', () => {
       target: { value: 'Results: updated full text.' },
     });
 
-    fireEvent.click(screen.getByText('Rebuild Pathway'));
+    fireEvent.click(screen.getByText('Build Pathway'));
 
     expect(onBuild).toHaveBeenCalledWith(
       expect.objectContaining({

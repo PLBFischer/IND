@@ -1857,13 +1857,6 @@ button {
   gap: 10px;
 }
 
-.pathway-editor__status-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.pathway-editor__status-grid div,
 .pathway-panel__query-summary,
 .pathway-panel__finding {
   border: 1px solid var(--border);
@@ -1871,7 +1864,6 @@ button {
   padding: 10px;
 }
 
-.pathway-editor__status-grid span,
 .pathway-panel__control span {
   font-size: 11px;
   color: var(--muted);

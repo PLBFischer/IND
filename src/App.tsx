@@ -47,7 +47,7 @@ import {
   isActiveNodeStatus,
 } from './utils/graph';
 import { formatMetric, getTotalCost } from './utils/metrics';
-import { createEmptyPathwayNode, getExperimentNodeOptions } from './utils/pathway';
+import { createEmptyPathwayNode } from './utils/pathway';
 import { getWarningLevel } from './utils/risk';
 import { STORAGE_KEY } from './utils/constants';
 import type { PathwayBuildResponse, PathwayQueryResponse } from './types/pathway';
@@ -298,8 +298,23 @@ function App() {
   );
   const interactiveNodeIds =
     interactionMode?.type === 'connect'
-      ? experimentNodes
-          .filter((node) => node.id !== interactionMode.nodeId)
+      ? nodes
+          .filter((node) => {
+            if (node.id === interactionMode.nodeId) {
+              return false;
+            }
+
+            const sourceNode = getNodeById(nodes, interactionMode.nodeId);
+            if (!sourceNode) {
+              return false;
+            }
+
+            if (isPathwayNode(sourceNode)) {
+              return isExperimentNode(node);
+            }
+
+            return isExperimentNode(node);
+          })
           .map((node) => node.id)
       : interactionMode?.type === 'parallelize'
         ? edges
@@ -562,7 +577,13 @@ function App() {
         return;
       }
 
-      if (!edgeExists(edges, interactionMode.nodeId, id)) {
+      const existingEdge = edges.find(
+        (edge) => edge.source === interactionMode.nodeId && edge.target === id,
+      );
+
+      if (existingEdge) {
+        setEdges((current) => current.filter((edge) => edge.id !== existingEdge.id));
+      } else {
         setEdges((current) => [
           ...current,
           {
@@ -1621,12 +1642,18 @@ function App() {
           <PathwayNodeEditor
             mode={editorMode}
             node={selectedPathwayNode}
-            experimentNodes={getExperimentNodeOptions(nodes)}
+            isConnectMode={interactionMode?.type === 'connect'}
             isBuilding={isPathwayBuildLoading}
             buildError={pathwayBuildError}
             onClose={closeEditor}
             onSave={handleSaveNode}
             onDelete={handleDeleteNode}
+            onStartConnect={() => {
+              if (selectedPathwayNode) {
+                setInteractionMode({ type: 'connect', nodeId: selectedPathwayNode.id });
+              }
+            }}
+            onCancelConnect={() => setInteractionMode(null)}
             onBuild={handleBuildPathway}
             onOpenExplorer={() => setIsPathwayExplorerOpen(true)}
           />

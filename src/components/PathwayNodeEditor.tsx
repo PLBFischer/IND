@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import type {
   BiologicalPathwayNode,
-  ExperimentNode,
   EditorMode,
 } from '../types/graph';
 import type { PathwayPaperSource } from '../types/pathway';
@@ -10,12 +9,14 @@ import { createId } from '../utils/graph';
 type PathwayNodeEditorProps = {
   mode: EditorMode;
   node: BiologicalPathwayNode | null;
-  experimentNodes: ExperimentNode[];
+  isConnectMode: boolean;
   isBuilding: boolean;
   buildError: string | null;
   onClose: () => void;
   onSave: (values: Omit<BiologicalPathwayNode, 'id' | 'x' | 'y'>) => void;
   onDelete: () => void;
+  onStartConnect: () => void;
+  onCancelConnect: () => void;
   onBuild: (values: Omit<BiologicalPathwayNode, 'id' | 'x' | 'y'>) => void;
   onOpenExplorer: () => void;
 };
@@ -36,12 +37,14 @@ const toFocusTerms = (value: string) =>
 export function PathwayNodeEditor({
   mode,
   node,
-  experimentNodes,
+  isConnectMode,
   isBuilding,
   buildError,
   onClose,
   onSave,
   onDelete,
+  onStartConnect,
+  onCancelConnect,
   onBuild,
   onOpenExplorer,
 }: PathwayNodeEditorProps) {
@@ -49,7 +52,6 @@ export function PathwayNodeEditor({
   const [summary, setSummary] = useState('');
   const [focusTermsText, setFocusTermsText] = useState('');
   const [paperSources, setPaperSources] = useState<PathwayPaperSource[]>([createSource()]);
-  const [linkedExperimentNodeIds, setLinkedExperimentNodeIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,7 +60,6 @@ export function PathwayNodeEditor({
       setSummary(node.summary ?? '');
       setFocusTermsText((node.focusTerms ?? []).join(', '));
       setPaperSources(node.paperSources.length > 0 ? node.paperSources : [createSource()]);
-      setLinkedExperimentNodeIds(node.linkedExperimentNodeIds ?? []);
       setError(null);
       return;
     }
@@ -68,7 +69,6 @@ export function PathwayNodeEditor({
       setSummary('');
       setFocusTermsText('');
       setPaperSources([createSource()]);
-      setLinkedExperimentNodeIds([]);
       setError(null);
     }
   }, [mode, node]);
@@ -94,7 +94,7 @@ export function PathwayNodeEditor({
     sanityReport: node?.sanityReport ?? null,
     queryHistory: node?.queryHistory ?? [],
     lastBuiltAt: node?.lastBuiltAt ?? null,
-    linkedExperimentNodeIds,
+    linkedExperimentNodeIds: node?.linkedExperimentNodeIds ?? [],
     lastBuildResponse: node?.lastBuildResponse ?? null,
     latestQueryResponse: node?.latestQueryResponse ?? null,
   });
@@ -112,6 +112,15 @@ export function PathwayNodeEditor({
           Close
         </button>
       </div>
+
+      {isConnectMode && isEditing ? (
+        <div className="editor__notice">
+          <p>Select an experiment node to create a visual connection.</p>
+          <button type="button" className="button" onClick={onCancelConnect}>
+            Cancel Connect
+          </button>
+        </div>
+      ) : null}
 
       <form
         className="editor__form"
@@ -254,49 +263,6 @@ export function PathwayNodeEditor({
         </section>
 
         <section className="editor__section">
-          <div className="editor__section-header">
-            <h3>Experiment Links</h3>
-            <span>Optional mechanistic context for experiment nodes</span>
-          </div>
-          <div className="editor__checkbox-list">
-            {experimentNodes.map((experimentNode) => (
-              <label key={experimentNode.id} className="editor__checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={linkedExperimentNodeIds.includes(experimentNode.id)}
-                  onChange={(event) =>
-                    setLinkedExperimentNodeIds((current) =>
-                      event.target.checked
-                        ? [...current, experimentNode.id]
-                        : current.filter((id) => id !== experimentNode.id),
-                    )
-                  }
-                />
-                <span>{experimentNode.title}</span>
-              </label>
-            ))}
-          </div>
-        </section>
-
-        <section className="editor__section">
-          <div className="editor__section-header">
-            <h3>Build Status</h3>
-            <span>Inspectability over automation</span>
-          </div>
-          <div className="pathway-editor__status-grid">
-            <div>
-              <span>Status</span>
-              <strong>{node?.extractionStatus ?? 'empty'}</strong>
-            </div>
-            <div>
-              <span>Default relations</span>
-              <strong>{node?.pathwayGraph?.default_relations.length ?? 0}</strong>
-            </div>
-            <div>
-              <span>Warnings</span>
-              <strong>{node?.sanityReport?.summary.high_priority_issue_count ?? 0}</strong>
-            </div>
-          </div>
           {node?.extractionError ? <p className="editor__error">{node.extractionError}</p> : null}
           {buildError ? <p className="editor__error">{buildError}</p> : null}
           {node?.lastBuildResponse?.warnings.length ? (
@@ -319,7 +285,7 @@ export function PathwayNodeEditor({
               }}
               disabled={isBuilding}
             >
-              {isBuilding ? 'Building...' : isEditing ? 'Rebuild Pathway' : 'Build Pathway'}
+              {isBuilding ? 'Reasoning...' : 'Build Pathway'}
             </button>
             <button
               type="button"
@@ -336,9 +302,14 @@ export function PathwayNodeEditor({
 
         <div className="editor__footer">
           {isEditing ? (
-            <button type="button" className="button button--ghost" onClick={onDelete}>
-              Delete Node
-            </button>
+            <div className="editor__footer-actions">
+              <button type="button" className="button" onClick={onStartConnect}>
+                Connect
+              </button>
+              <button type="button" className="button button--ghost" onClick={onDelete}>
+                Delete Node
+              </button>
+            </div>
           ) : <span />}
           <button type="submit" className="button button--primary">
             {isEditing ? 'Update Node' : 'Create Node'}
