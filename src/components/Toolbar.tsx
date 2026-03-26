@@ -1,5 +1,5 @@
 type ToolbarProps = {
-  plannedCostDisplay: string;
+  totalCostDisplay: string;
   plannedDuration: string;
   isAssigning: boolean;
   canAssign: boolean;
@@ -18,7 +18,7 @@ type ToolbarProps = {
 };
 
 export function Toolbar({
-  plannedCostDisplay,
+  totalCostDisplay,
   plannedDuration,
   isAssigning,
   canAssign,
@@ -44,8 +44,8 @@ export function Toolbar({
       <div className="toolbar__actions">
         <div className="toolbar__metrics" aria-label="Flow metrics">
           <div className="toolbar__metric">
-            <span>Planned Cost / Budget</span>
-            <strong>{plannedCostDisplay}</strong>
+            <span>Total Cost / Budget</span>
+            <strong>{totalCostDisplay}</strong>
           </div>
           <div className="toolbar__metric">
             <span>Planned Duration</span>

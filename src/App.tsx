@@ -46,7 +46,7 @@ import {
   isPathwayNode,
   isActiveNodeStatus,
 } from './utils/graph';
-import { formatMetric, getTotalCost } from './utils/metrics';
+import { formatCurrencyMetric, formatMetric, getTotalCost } from './utils/metrics';
 import { createEmptyPathwayNode } from './utils/pathway';
 import { getWarningLevel } from './utils/risk';
 import { STORAGE_KEY } from './utils/constants';
@@ -278,7 +278,7 @@ function App() {
   const selectedPathwayNode =
     selectedNode && isPathwayNode(selectedNode) ? selectedNode : null;
   const experimentNodes = getExperimentNodes(nodes);
-  const totalCost = formatMetric(getTotalCost(nodes, edges));
+  const totalCost = formatCurrencyMetric(getTotalCost(nodes, edges));
   const showParallelizationMultiplier = selectedExperimentNode
     ? hasIncomingParallelizedEdge(edges, selectedExperimentNode.id)
     : false;
@@ -287,8 +287,8 @@ function App() {
   const canAccelerate = experimentNodes.length > 0 && budgetUsd !== null;
   const schedulingSignature = JSON.stringify(scheduleGraphInput);
   const analysisSignature = JSON.stringify(analysisGraph);
-  const plannedCostDisplay = `${`$${totalCost}`} / ${
-    budgetUsd !== null ? `$${formatMetric(budgetUsd)}` : 'No budget'
+  const totalCostDisplay = `${`$${totalCost}`} / ${
+    budgetUsd !== null ? `$${formatCurrencyMetric(budgetUsd)}` : 'No budget'
   }`;
   const plannedDuration = isAssignedView && schedule
     ? `${formatMetric(schedule.makespan)} weeks`
@@ -1528,7 +1528,7 @@ function App() {
   return (
     <div className="app-shell">
       <Toolbar
-        plannedCostDisplay={plannedCostDisplay}
+        totalCostDisplay={totalCostDisplay}
         plannedDuration={plannedDuration}
         isAssigning={isAssigning}
         canAssign={experimentNodes.length > 0}

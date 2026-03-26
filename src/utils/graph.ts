@@ -69,6 +69,9 @@ export const isActiveNodeStatus = (status: NodeStatus) =>
 export const isCompletedNodeStatus = (status: NodeStatus) =>
   status === 'completed';
 
+export const countsTowardTotalCost = (status: NodeStatus) =>
+  status !== 'canceled';
+
 export const getNodeTypeLabel = (type: NodeType) => NODE_TYPE_LABELS[type];
 
 export const getNodeStatusLabel = (status: NodeStatus) => NODE_STATUS_LABELS[status];

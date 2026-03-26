@@ -74,9 +74,6 @@ NodeType = Literal[
     "formulation_cmc",
     "bioanalysis",
     "regulatory",
-    "vendor",
-    "analysis",
-    "milestone",
     "other",
 ]
 NodeStatus = Literal[
@@ -490,6 +487,10 @@ def is_node_completed(node: NodePayload) -> bool:
     return node.status == "completed"
 
 
+def counts_toward_total_cost(node: NodePayload) -> bool:
+    return node.status != "canceled"
+
+
 def get_node_effective_summary(node: NodePayload) -> str:
     return (
         node.objective.strip()
@@ -583,11 +584,11 @@ def get_effective_multiplier(node: NodePayload, edges: list[EdgePayload]) -> int
     return node.parallelizationMultiplier if node.id in get_parallelized_targets(edges) else 1
 
 
-def get_planned_cost(nodes: list[NodePayload], edges: list[EdgePayload]) -> float:
+def get_total_cost(nodes: list[NodePayload], edges: list[EdgePayload]) -> float:
     parallelized_targets = get_parallelized_targets(edges)
     total = 0.0
     for node in nodes:
-        if not is_node_active(node):
+        if not counts_toward_total_cost(node):
             continue
         multiplier = node.parallelizationMultiplier if node.id in parallelized_targets else 1
         total += node.cost * multiplier
@@ -865,7 +866,7 @@ def enumerate_candidates(
                 candidate_experiment_nodes,
                 candidate_graph.edges,
             )
-            resulting_cost = get_planned_cost(
+            resulting_cost = get_total_cost(
                 candidate_experiment_nodes,
                 candidate_experiment_edges,
             )
@@ -1046,7 +1047,7 @@ def build_chat_graph_context(payload: ChatRequest) -> dict[str, object]:
             }
             for node in pathway_nodes
         ],
-        "planned_cost_usd": get_planned_cost(experiment_nodes, experiment_edges),
+        "total_cost_usd": get_total_cost(experiment_nodes, experiment_edges),
         "planned_duration_weeks": resolved_schedule.makespan if resolved_schedule else None,
     }
 
@@ -1148,7 +1149,7 @@ def choose_candidate_with_llm(
             instructions=(
                 "You are an acceleration planning assistant for a translational program cockpit. "
                 "Choose exactly one candidate edge parallelization and multiplier to propose next, or stop if none are worthwhile. "
-                "Objective: shorten the credible path to Phase 1 and IND readiness while keeping planned cost within budget. "
+                "Objective: shorten the credible path to Phase 1 and IND readiness while keeping total cost within budget. "
                 "Interpret a higher multiplier on the target experiment as running more parallel variants of that experiment. "
                 "Higher multipliers should only be recommended when they materially improve the chance that the early parallelized attempt will still be usable once predecessor outputs are known. "
                 "Use the target Phase 1 design, target IND strategy, and node metadata to judge whether a speedup strengthens or weakens the clinic-bound story. "
@@ -1168,7 +1169,7 @@ def choose_candidate_with_llm(
                 {
                     "graph_context": graph_context,
                     "budget_usd": budget_usd,
-                    "baseline_planned_cost": baseline_cost,
+                    "baseline_total_cost": baseline_cost,
                     "baseline_planned_duration_weeks": baseline_duration,
                     "rejected_candidate_ids": rejected_candidate_ids,
                     "candidates": candidates[:24],
@@ -4073,7 +4074,7 @@ def accelerate_propose(payload: AccelerateRequest) -> AccelerateResponse:
         edges=payload.edges,
     )
     baseline_schedule = solve_schedule_response(baseline_graph)
-    baseline_cost = get_planned_cost(experiment_nodes, experiment_edges)
+    baseline_cost = get_total_cost(experiment_nodes, experiment_edges)
     baseline_duration = baseline_schedule.makespan
     baseline_graph_context = build_chat_graph_context(
         ChatRequest(messages=[], graph=baseline_graph, schedule=baseline_schedule)

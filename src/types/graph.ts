@@ -24,9 +24,6 @@ export const NODE_TYPE_OPTIONS = [
   'formulation_cmc',
   'bioanalysis',
   'regulatory',
-  'vendor',
-  'analysis',
-  'milestone',
   'other',
 ] as const;
 
@@ -42,9 +39,6 @@ export const NODE_TYPE_LABELS: Record<NodeType, string> = {
   formulation_cmc: 'Formulation / CMC',
   bioanalysis: 'Bioanalysis',
   regulatory: 'Regulatory',
-  vendor: 'Vendor',
-  analysis: 'Analysis',
-  milestone: 'Milestone',
   other: 'Other',
 };
 

@@ -1,6 +1,7 @@
 import type { FlowEdge, FlowNode } from '../types/graph';
 import { getEffectiveNodeCost } from './graph';
 import {
+  countsTowardTotalCost,
   getExperimentEdges,
   getExperimentNodes,
   isActiveNodeStatus,
@@ -14,10 +15,22 @@ export const formatMetric = (value: number) => {
   return Number.isInteger(value) ? `${value}` : value.toFixed(2).replace(/\.?0+$/, '');
 };
 
+export const formatCurrencyMetric = (value: number) => {
+  if (Number.isNaN(value)) {
+    return 'NaN';
+  }
+
+  const rounded = Number.isInteger(value) ? value : Number(value.toFixed(2));
+  return rounded.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+};
+
 export const getTotalCost = (nodes: FlowNode[], edges: FlowEdge[]) =>
   getExperimentNodes(nodes).reduce(
     (sum, node) =>
-      sum + (isActiveNodeStatus(node.status) ? getEffectiveNodeCost(node, edges) : 0),
+      sum + (countsTowardTotalCost(node.status) ? getEffectiveNodeCost(node, edges) : 0),
     0,
   );
 
