@@ -810,6 +810,63 @@ def test_direct_relation_query_includes_nondefault_when_needed() -> None:
     assert any("nondefault" in note for note in response.notes)
 
 
+def test_direct_relation_query_falls_back_to_indirect_path() -> None:
+    graph = make_test_pathway_graph()
+    graph.default_relations.append(
+        AggregatedRelation(
+            relation_id="R_a_bc",
+            source_entity_id="E_A",
+            target_entity_id="E_BC",
+            relation_type="activates",
+            relation_category="interaction",
+            assertion_status="explicit",
+            direction="source_to_target",
+            support_class="current_paper_direct",
+            mechanistic_status="direct",
+            evidence_strength="strong",
+            confidence=0.9,
+            evidence_ids=["EV_results"],
+            summary="A activates BC complex.",
+            notes="",
+        )
+    )
+
+    plan = PathwayQueryPlan.model_validate(
+        {
+            "query_intent": "direct_relation",
+            "source_entity_text": "A",
+            "target_entity_text": "D",
+            "entity_texts": [],
+            "search_mode": "direct_only",
+            "max_hops": 1,
+            "path_validation_mode": "rank_by_match_density",
+            "allowed_relation_types": [],
+            "allowed_entity_types": [],
+            "include_structural_relations": True,
+            "include_nondefault_relations": False,
+            "evidence_filter": {
+                "modalities": [],
+                "support_classes": [],
+                "min_confidence": 0.0,
+                "require_all_edges_meet_filter": False,
+                "include_background": False,
+            },
+            "render_instructions": {
+                "show_only_subgraph": True,
+                "highlight_entity_types": [],
+                "highlight_relation_types": [],
+            },
+            "answer_mode": "subgraph_and_summary",
+        }
+    )
+
+    response = execute_pathway_query_plan(graph, plan)
+
+    assert response.query_status == "ok"
+    assert response.subgraph_relation_ids == ["R_a_bc", "R_results"]
+    assert any("indirect path" in note for note in response.notes)
+
+
 def test_sanity_report_schema_validates() -> None:
     report = PathwaySanityReport.model_validate(
         {

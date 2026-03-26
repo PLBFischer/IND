@@ -3765,24 +3765,37 @@ def execute_pathway_query_plan(
                 target_match.matched_entity_id,
             )
             if not direct_relations:
-                return PathwayQueryResponse(
-                    query_status="no_supported_path",
-                    query_plan={
-                        "query_intent": plan.query_intent,
-                        "search_mode": plan.search_mode,
-                        "max_hops": plan.max_hops,
-                    },
-                    resolved_entities=resolved_entities,
-                    subgraph_entity_ids=[],
-                    subgraph_relation_ids=[],
-                    evidence_cards=[],
-                    answer_summary="No direct supported relation matched the requested constraints.",
-                    notes=[],
+                entity_path, relation_path = execute_path_search(
+                    graph,
+                    relaxed_relations,
+                    source_match.matched_entity_id,
+                    target_match.matched_entity_id,
+                    max(plan.max_hops, 3),
                 )
-            relation_ids = [relation.relation_id for relation in direct_relations]
-            entity_ids = [source_match.matched_entity_id, target_match.matched_entity_id]
-            if any(relation.relation_id in {item.relation_id for item in graph.nondefault_relations} for relation in direct_relations):
-                notes.append("Showing nondefault evidence because no default direct edge fully covered the pair.")
+                if relation_path:
+                    entity_ids = entity_path
+                    relation_ids = relation_path
+                    notes.append("No direct edge matched; showing the shortest supported indirect path.")
+                else:
+                    return PathwayQueryResponse(
+                        query_status="no_supported_path",
+                        query_plan={
+                            "query_intent": plan.query_intent,
+                            "search_mode": plan.search_mode,
+                            "max_hops": plan.max_hops,
+                        },
+                        resolved_entities=resolved_entities,
+                        subgraph_entity_ids=[],
+                        subgraph_relation_ids=[],
+                        evidence_cards=[],
+                        answer_summary="No direct supported relation matched the requested constraints.",
+                        notes=[],
+                    )
+            else:
+                relation_ids = [relation.relation_id for relation in direct_relations]
+                entity_ids = [source_match.matched_entity_id, target_match.matched_entity_id]
+                if any(relation.relation_id in {item.relation_id for item in graph.nondefault_relations} for relation in direct_relations):
+                    notes.append("Showing nondefault evidence because no default direct edge fully covered the pair.")
         else:
             entity_path, relation_path = execute_path_search(
                 graph,

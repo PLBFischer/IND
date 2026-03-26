@@ -131,9 +131,36 @@ describe('PathwayPanel', () => {
       />,
     );
 
-    fireEvent.click(screen.getByText('TNF activates NF-kB.'));
+    fireEvent.click(screen.getByRole('button', { name: 'TNF activates NF-kB.' }));
 
     expect(screen.getByText('TNF increased NF-kB activation in vivo.')).toBeInTheDocument();
     expect(screen.getByText('In vivo challenge model')).toBeInTheDocument();
+  });
+
+  it('shows the relation tooltip and edge legend', () => {
+    const { container } = render(
+      <PathwayPanel
+        node={node}
+        isOpen
+        isQuerying={false}
+        queryError={null}
+        queryResponse={null}
+        onClose={vi.fn()}
+        onQuery={vi.fn()}
+      />,
+    );
+
+    const edgeHitArea = container.querySelector('.pathway-panel__edge-hit');
+    expect(edgeHitArea).not.toBeNull();
+
+    fireEvent.pointerEnter(edgeHitArea as Element, {
+      clientX: 160,
+      clientY: 200,
+    });
+
+    expect(screen.getByText('activates')).toBeInTheDocument();
+    expect(screen.getByText('Confidence 90% · strong evidence')).toBeInTheDocument();
+    expect(screen.getByText('Activates / increases')).toBeInTheDocument();
+    expect(screen.getByText('Inhibits / decreases')).toBeInTheDocument();
   });
 });
