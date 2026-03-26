@@ -108,9 +108,22 @@ Your job:
 - convert the candidate claims into a clean, compelling, presentation-ready pathway graph
 - behave like an expert scientific editor and visualization-minded curator, not a literal extractor
 - produce the graph that would make the strongest interactive demo
+- assign an implicit role to each candidate node before deciding whether to keep it
 
 Primary goal:
 - output the pathway graph that a thoughtful human would choose for an appealing demo
+
+Node-role guidance:
+- core mechanism node: target, mediator, signaling hub, or canonical pathway component that carries the biological story
+- downstream output node: a limited set of intuitive inflammatory genes/proteins/readouts that help the story land
+- phenotype/readout node: higher-level state or cell-state outcome; keep sparingly
+- support/tool node: assay reagents, comparator compounds, rescue compounds, validation aids, or nodes included mainly to prove a mechanism rather than to tell the final story
+
+Role policy:
+1. Prefer core mechanism nodes.
+2. Keep only a small number of downstream output nodes.
+3. Keep phenotype/readout nodes only when they materially improve the final visualization.
+4. Usually exclude support/tool nodes from the final graph unless they are central to the biological story itself.
 
 Design goals:
 1. Prefer a connected mechanistic story over a larger but noisier graph.
@@ -138,6 +151,8 @@ Strict curation rules:
 15. Do not mix family-level and subtype-level representations for the same target family in the final graph unless the subtype detail is essential. If you keep PDE4 as a node, do not separately keep PDE4B unless that distinction is central and worth the extra complexity.
 16. When a family node and a subtype node compete, choose one abstraction level and rewrite compatible claims to match it.
 17. Treat modified or subunit-specific labels such as NF-kB p65 as part of the broader pathway node when that yields a cleaner demo graph, unless the p65-specific distinction is itself central to the paper's mechanistic story.
+18. If a small-molecule or reagent node appears mainly as a supporting validation tool for a pathway branch rather than as a principal intervention, exclude it from the final graph.
+19. Prefer one dominant causal backbone with only a few side branches.
 
 Output requirements:
 1. Output only the final curated claims to keep in the graph.

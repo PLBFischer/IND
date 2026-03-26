@@ -2952,6 +2952,78 @@ def prune_nonvisual_process_and_phenotype_edges(graph: PathwayGraph) -> PathwayG
     return PathwayGraph(**graph_payload)
 
 
+def prune_auxiliary_small_molecule_nodes(graph: PathwayGraph) -> PathwayGraph:
+    all_relations = [*graph.default_relations, *graph.nondefault_relations, *graph.structural_relations]
+    if not all_relations:
+        return graph
+
+    entity_by_id = {entity.entity_id: entity for entity in graph.normalized_entities}
+    outgoing_count: dict[str, int] = {}
+    incident_count: dict[str, int] = {}
+    for relation in all_relations:
+        outgoing_count[relation.source_entity_id] = outgoing_count.get(relation.source_entity_id, 0) + 1
+        incident_count[relation.source_entity_id] = incident_count.get(relation.source_entity_id, 0) + 1
+        incident_count[relation.target_entity_id] = incident_count.get(relation.target_entity_id, 0) + 1
+
+    small_molecule_ids = [
+        entity.entity_id
+        for entity in graph.normalized_entities
+        if entity.entity_type in {"small_molecule", "drug"}
+    ]
+    if len(small_molecule_ids) <= 1:
+        return graph
+
+    main_intervention_id = max(
+        small_molecule_ids,
+        key=lambda entity_id: (
+            outgoing_count.get(entity_id, 0),
+            incident_count.get(entity_id, 0),
+            -len(entity_by_id[entity_id].canonical_name),
+        ),
+    )
+
+    pruned_ids = {
+        entity_id
+        for entity_id in small_molecule_ids
+        if entity_id != main_intervention_id and incident_count.get(entity_id, 0) <= 1
+    }
+    if not pruned_ids:
+        return graph
+
+    def keep_relation(relation: AggregatedRelation) -> bool:
+        return relation.source_entity_id not in pruned_ids and relation.target_entity_id not in pruned_ids
+
+    kept_default = [relation for relation in graph.default_relations if keep_relation(relation)]
+    kept_nondefault = [relation for relation in graph.nondefault_relations if keep_relation(relation)]
+    kept_structural = [relation for relation in graph.structural_relations if keep_relation(relation)]
+    kept_evidence_ids = {
+        evidence_id
+        for relation in [*kept_default, *kept_nondefault, *kept_structural]
+        for evidence_id in relation.evidence_ids
+    }
+    kept_evidence = [
+        item for item in graph.evidence_items if item.evidence_id in kept_evidence_ids
+    ]
+    referenced_entity_ids = {
+        relation.source_entity_id
+        for relation in [*kept_default, *kept_nondefault, *kept_structural]
+    } | {
+        relation.target_entity_id
+        for relation in [*kept_default, *kept_nondefault, *kept_structural]
+    }
+    kept_entities = [
+        entity for entity in graph.normalized_entities if entity.entity_id in referenced_entity_ids
+    ]
+
+    graph_payload = graph.model_dump()
+    graph_payload["normalized_entities"] = [entity.model_dump() for entity in kept_entities]
+    graph_payload["evidence_items"] = [item.model_dump() for item in kept_evidence]
+    graph_payload["default_relations"] = [relation.model_dump() for relation in kept_default]
+    graph_payload["nondefault_relations"] = [relation.model_dump() for relation in kept_nondefault]
+    graph_payload["structural_relations"] = [relation.model_dump() for relation in kept_structural]
+    return PathwayGraph(**graph_payload)
+
+
 def review_duplicate_entities_with_llm(graph: PathwayGraph) -> DuplicateEntityReview:
     entity_catalog = [
         {
@@ -3448,6 +3520,7 @@ def build_pathway_graph_with_llm(payload: PathwayBuildRequest) -> PathwayBuildRe
     )
     curated_claims = reconcile_curated_claim_abstractions(curated_claims)
     graph = merge_claim_extractions_into_graph(payload, parsed_sources, curated_claims)
+    graph = prune_auxiliary_small_molecule_nodes(graph)
     graph = prune_nonvisual_process_and_phenotype_edges(graph)
     try:
         duplicate_review = review_duplicate_entities_with_llm(graph)
