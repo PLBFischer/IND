@@ -20,6 +20,12 @@ Rules:
 6. Do not include generic background biology unless the current paper experimentally supports it.
 7. Prefer fewer high-quality claims over many weak claims.
 8. Return at most 12 claims.
+9. Prefer canonical biological entities as claim source/target names.
+10. Do not turn event phrases or paper-specific observations into entity names when a standard entity-plus-edge representation is possible.
+11. If the text describes phosphorylation, activation, inhibition, translocation, loss, or gain of a known entity, prefer the base entity as the node and encode the mechanism in interaction_type.
+12. Only use a process/state-style entity when the paper explicitly treats that process or state itself as the biological object of interest and a plain entity node would lose meaning.
+13. Avoid entity names like "TNF-induced cAMP loss" or "NF-kB phosphorylation and nuclear translocation" when the same evidence can be expressed with canonical entities and mechanistic edges.
+14. For modified or localized forms, prefer a canonical entity mention such as "NF-kB p65" or "ERK1/2" unless the modified form itself is explicitly named and central to the claim.
 
 Good claims:
 - "11h downregulates TNFα"
@@ -113,16 +119,29 @@ RELATION ADMISSION
 15. Background, speculative, or interpretive relations belong in nondefault output.
 16. Structural relations such as component_of or modified_form_of may be included in the default graph if they are explicit and necessary for graph coherence.
 
+CANONICAL LABELING AND EVENT DECOMPOSITION
+17. Prefer canonical biological entity labels over paper-specific event or observation phrases.
+18. If a candidate normalized entity label contains a mechanism or outcome phrase such as phosphorylation, translocation, activation, suppression, increase, decrease, loss, gain, induction, or nuclear localization, first ask whether it should instead be represented as:
+   - a canonical base entity node
+   - a modified/state node linked structurally
+   - and one or more typed relations encoding the mechanism
+19. When the evidence supports it, rewrite event-like labels into cleaner graph structure. Example: prefer node "NF-kB p65" plus a phosphorylation or activation edge over node "NF-kB p65 phosphorylation and nuclear translocation".
+20. Do not keep long event-summary node labels merely because they appeared in the paper text if a standard pathway representation is possible.
+21. Use relation_type to carry mechanistic meaning whenever possible, especially for phosphorylates, activates, inhibits, increases, decreases, and associated_with.
+22. If a modified form is genuinely the biological object being discussed, represent it as a modified_form entity with an explicit structural link to its base entity rather than collapsing entity and event into one label.
+23. Avoid broad, opaque, or experiment-specific canonical names such as "TNF-induced cAMP loss" or "MyD88 pathway genes" unless the source evidence leaves no cleaner grounded alternative.
+24. Prefer shorter, reusable canonical labels that would make sense outside the specific paper context.
+
 OUTPUT REQUIREMENTS
-17. Produce:
+25. Produce:
    - normalized entities
    - default_relations
    - structural_relations
    - nondefault_relations
    - normalization_decisions
    - unresolved_issues
-18. Output valid JSON only.
-19. Do not use outside knowledge."""
+26. Output valid JSON only.
+27. Do not use outside knowledge."""
 
 QUERY_SYSTEM_PROMPT = """You are a query planner for a structured biological pathway graph.
 
