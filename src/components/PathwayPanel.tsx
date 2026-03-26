@@ -135,10 +135,6 @@ export function PathwayPanel({
   onQuery,
   onClearQuery,
 }: PathwayPanelProps) {
-  const [includeNondefaultRelations, setIncludeNondefaultRelations] = useState(false);
-  const [includeStructuralRelations, setIncludeStructuralRelations] = useState(true);
-  const [strongEvidenceOnly, setStrongEvidenceOnly] = useState(true);
-  const [minConfidence, setMinConfidence] = useState(0.65);
   const [modality, setModality] = useState('all');
   const [zoom, setZoom] = useState(1);
   const [viewport, setViewport] = useState({ x: 0, y: 0 });
@@ -164,49 +160,33 @@ export function PathwayPanel({
         ? getVisiblePathwayEntityIds(
             graph,
             {
-              strongEvidenceOnly,
-              includeNondefaultRelations,
-              includeStructuralRelations,
+              strongEvidenceOnly: true,
+              includeNondefaultRelations: false,
+              includeStructuralRelations: true,
               modality,
-              minConfidence,
+              minConfidence: 0.65,
             },
             queryResponse,
           )
         : new Set<string>(),
-    [
-      graph,
-      strongEvidenceOnly,
-      includeNondefaultRelations,
-      includeStructuralRelations,
-      modality,
-      minConfidence,
-      queryResponse,
-    ],
+    [graph, modality, queryResponse],
   );
   const visibleRelations = useMemo(
     () =>
       graph
         ? getVisiblePathwayRelations(graph, {
-            strongEvidenceOnly,
-            includeNondefaultRelations,
-            includeStructuralRelations,
+            strongEvidenceOnly: true,
+            includeNondefaultRelations: false,
+            includeStructuralRelations: true,
             modality,
-            minConfidence,
+            minConfidence: 0.65,
           }).filter((relation) =>
             queryResponse?.subgraph_relation_ids.length
               ? queryResponse.subgraph_relation_ids.includes(relation.relation_id)
               : true,
           )
         : [],
-    [
-      graph,
-      strongEvidenceOnly,
-      includeNondefaultRelations,
-      includeStructuralRelations,
-      modality,
-      minConfidence,
-      queryResponse,
-    ],
+    [graph, modality, queryResponse],
   );
   const layout = useMemo(
     () => (graph ? computePathwayLayout(graph, visibleEntityIds) : {}),
@@ -519,30 +499,6 @@ export function PathwayPanel({
       </div>
 
       <div className="pathway-panel__controls">
-        <label>
-          <input
-            type="checkbox"
-            checked={strongEvidenceOnly}
-            onChange={(event) => setStrongEvidenceOnly(event.target.checked)}
-          />
-          Strong evidence only
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={includeStructuralRelations}
-            onChange={(event) => setIncludeStructuralRelations(event.target.checked)}
-          />
-          Structural relations
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={includeNondefaultRelations}
-            onChange={(event) => setIncludeNondefaultRelations(event.target.checked)}
-          />
-          Interpretive / background
-        </label>
         <label className="pathway-panel__control">
           <span>Modality</span>
           <select value={modality} onChange={(event) => setModality(event.target.value)}>
@@ -553,17 +509,6 @@ export function PathwayPanel({
             <option value="ex_vivo">Ex vivo</option>
             <option value="computational">Computational</option>
           </select>
-        </label>
-        <label className="pathway-panel__control">
-          <span>Min confidence</span>
-          <input
-            type="range"
-            min={0.4}
-            max={0.95}
-            step={0.05}
-            value={minConfidence}
-            onChange={(event) => setMinConfidence(Number(event.target.value))}
-          />
         </label>
       </div>
 
