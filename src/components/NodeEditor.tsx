@@ -75,6 +75,7 @@ export function NodeEditor({
   const [operators, setOperators] = useState<string[]>([]);
   const [owner, setOwner] = useState('');
   const [status, setStatus] = useState<ExperimentNode['status']>('planned');
+  const [actualStartWeek, setActualStartWeek] = useState('');
   const [blockerPriority, setBlockerPriority] = useState<ExperimentNode['blockerPriority']>('supporting');
   const [phase1Relevance, setPhase1Relevance] = useState('');
   const [indRelevance, setIndRelevance] = useState('');
@@ -99,6 +100,11 @@ export function NodeEditor({
       setOperators(node.operators);
       setOwner(node.owner ?? '');
       setStatus(node.status);
+      setActualStartWeek(
+        node.actualStartWeek !== null && node.actualStartWeek !== undefined
+          ? `${node.actualStartWeek}`
+          : '',
+      );
       setBlockerPriority(node.blockerPriority);
       setPhase1Relevance(node.phase1Relevance);
       setIndRelevance(node.indRelevance);
@@ -124,6 +130,7 @@ export function NodeEditor({
       setOperators([]);
       setOwner('');
       setStatus('planned');
+      setActualStartWeek('');
       setBlockerPriority('supporting');
       setPhase1Relevance('');
       setIndRelevance('');
@@ -196,6 +203,9 @@ export function NodeEditor({
           const nextCost = Number(cost);
           const nextDuration = Number(duration);
           const nextWorkHoursPerWeek = Number(workHoursPerWeek);
+          const nextActualStartWeek = actualStartWeek.trim()
+            ? Number(actualStartWeek)
+            : null;
 
           if (
             !Number.isFinite(nextCost) ||
@@ -208,6 +218,14 @@ export function NodeEditor({
 
           if (nextCost < 0 || nextDuration < 0 || nextWorkHoursPerWeek < 0) {
             setError('Cost, duration, and weekly work hours cannot be negative.');
+            return;
+          }
+
+          if (
+            nextActualStartWeek !== null &&
+            (!Number.isFinite(nextActualStartWeek) || nextActualStartWeek < 1)
+          ) {
+            setError('Actual start week must be a valid week number.');
             return;
           }
 
@@ -228,6 +246,7 @@ export function NodeEditor({
             operators,
             owner: owner.trim() || undefined,
             status,
+            actualStartWeek: nextActualStartWeek,
             blockerPriority,
             phase1Relevance: phase1Relevance.trim(),
             indRelevance: indRelevance.trim(),
@@ -409,6 +428,18 @@ export function NodeEditor({
                 value={owner}
                 onChange={(event) => setOwner(event.target.value)}
                 placeholder="Current owner or assignee"
+              />
+            </label>
+
+            <label className="field">
+              <span>Actual Start Week</span>
+              <input
+                type="number"
+                step="1"
+                min="1"
+                value={actualStartWeek}
+                onChange={(event) => setActualStartWeek(event.target.value)}
+                placeholder="Set when work has started"
               />
             </label>
 

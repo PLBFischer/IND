@@ -19,6 +19,7 @@ function ProgramHarness() {
             programTitle: 'Updated Demo',
             targetPhase1Design: 'Updated Phase 1 design',
             targetIndStrategy: 'Updated IND strategy',
+            currentWeek: 1,
           })
         }
       >

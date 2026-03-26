@@ -125,6 +125,7 @@ class ProgramPayload(BaseModel):
     programTitle: str | None = None
     targetPhase1Design: str = ""
     targetIndStrategy: str = ""
+    currentWeek: int = Field(default=1, ge=1)
 
     @model_validator(mode="before")
     @classmethod
@@ -156,6 +157,7 @@ class NodePayload(BaseModel):
     operators: list[str] = Field(default_factory=list)
     owner: str | None = None
     status: NodeStatus = "planned"
+    actualStartWeek: float | None = Field(default=None, ge=1)
     blockerPriority: BlockerPriority = "supporting"
     phase1Relevance: str = ""
     indRelevance: str = ""
@@ -178,6 +180,8 @@ class NodePayload(BaseModel):
         normalized["linkedPathwayNodeIds"] = normalize_string_list(
             normalized.get("linkedPathwayNodeIds")
         )
+        if not isinstance(normalized.get("actualStartWeek"), (int, float)):
+            normalized["actualStartWeek"] = None
         if not isinstance(normalized.get("owner"), str) or not normalized.get("owner", "").strip():
             normalized["owner"] = None
         return normalized
@@ -584,6 +588,21 @@ def get_effective_multiplier(node: NodePayload, edges: list[EdgePayload]) -> int
     return node.parallelizationMultiplier if node.id in get_parallelized_targets(edges) else 1
 
 
+def get_effective_total_duration(node: NodePayload, current_week: int) -> float:
+    if node.status != "in_progress":
+        return node.duration
+
+    if node.actualStartWeek is None:
+        return max(node.duration, 1)
+
+    minimum_finish = current_week
+    planned_finish = node.actualStartWeek + node.duration
+    if planned_finish >= minimum_finish:
+        return node.duration
+
+    return max(node.duration, minimum_finish - node.actualStartWeek)
+
+
 def get_total_cost(nodes: list[NodePayload], edges: list[EdgePayload]) -> float:
     parallelized_targets = get_parallelized_targets(edges)
     total = 0.0
@@ -598,6 +617,8 @@ def get_total_cost(nodes: list[NodePayload], edges: list[EdgePayload]) -> float:
 def solve_schedule_response(payload: GraphPayload) -> ScheduleResponse:
     experiment_nodes = get_experiment_nodes(payload)
     experiment_edges = get_experiment_edges(experiment_nodes, payload.edges)
+    current_week = payload.program.currentWeek
+    current_week_offset = current_week - 1
 
     if not experiment_nodes:
         return ScheduleResponse(makespan=0, nodes=[], diagnostics=[])
@@ -645,7 +666,10 @@ def solve_schedule_response(payload: GraphPayload) -> ScheduleResponse:
             ],
         )
 
-    horizon = sum(scale_value(node.duration, scale) for node in active_nodes)
+    horizon = scale_value(current_week_offset, scale) + sum(
+        scale_value(get_effective_total_duration(node, current_week), scale)
+        for node in active_nodes
+    )
     model = cp_model.CpModel()
 
     start_vars: dict[str, cp_model.IntVar] = {}
@@ -658,15 +682,21 @@ def solve_schedule_response(payload: GraphPayload) -> ScheduleResponse:
     eligible_operators_by_node: dict[str, list[str]] = {}
 
     for node in active_nodes:
-        duration = scale_value(node.duration, scale)
+        duration = scale_value(get_effective_total_duration(node, current_week), scale)
         effective_multiplier = node.parallelizationMultiplier if node.id in parallelized_targets else 1
         work_hours_per_week = scale_value(
             node.workHoursPerWeek * effective_multiplier,
             scale,
         )
-        start = model.NewIntVar(0, horizon, f"start_{node.id}")
+        earliest_start = scale_value(current_week_offset, scale)
+        if node.status == "in_progress" and node.actualStartWeek is not None:
+            earliest_start = scale_value(node.actualStartWeek - 1, scale)
+
+        start = model.NewIntVar(earliest_start, horizon, f"start_{node.id}")
         end = model.NewIntVar(0, horizon, f"end_{node.id}")
         model.Add(end == start + duration)
+        if node.status == "in_progress" and node.actualStartWeek is not None:
+            model.Add(start == earliest_start)
 
         start_vars[node.id] = start
         end_vars[node.id] = end
@@ -718,9 +748,9 @@ def solve_schedule_response(payload: GraphPayload) -> ScheduleResponse:
             else:
                 model.Add(target_start >= end_vars[edge.source])
 
-    makespan = model.NewIntVar(0, horizon, "makespan")
-    model.AddMaxEquality(makespan, list(end_vars.values()))
-    weighted_sum = makespan * (len(active_nodes) * (horizon + 1) + 1) + sum(
+    absolute_makespan = model.NewIntVar(0, horizon, "absolute_makespan")
+    model.AddMaxEquality(absolute_makespan, list(end_vars.values()))
+    weighted_sum = absolute_makespan * (len(active_nodes) * (horizon + 1) + 1) + sum(
         end_vars.values()
     )
     model.Minimize(weighted_sum)
@@ -773,7 +803,7 @@ def solve_schedule_response(payload: GraphPayload) -> ScheduleResponse:
         )
 
     return ScheduleResponse(
-        makespan=unscale_value(solver.Value(makespan), scale),
+        makespan=unscale_value(solver.Value(absolute_makespan) - scale_value(current_week_offset, scale), scale),
         nodes=scheduled_nodes,
         diagnostics=diagnostics,
     )
@@ -968,6 +998,7 @@ def build_chat_graph_context(payload: ChatRequest) -> dict[str, object]:
             "program_title": payload.graph.program.programTitle,
             "target_phase1_design": payload.graph.program.targetPhase1Design,
             "target_ind_strategy": payload.graph.program.targetIndStrategy,
+            "current_week": payload.graph.program.currentWeek,
         },
         "personnel": [
             {
@@ -990,6 +1021,7 @@ def build_chat_graph_context(payload: ChatRequest) -> dict[str, object]:
                 "operational_notes": node.operationalNotes,
                 "owner": node.owner,
                 "blocker_priority": node.blockerPriority,
+                "actual_start_week": node.actualStartWeek,
                 "phase1_relevance": node.phase1Relevance,
                 "ind_relevance": node.indRelevance,
                 "evidence_refs": node.evidenceRefs,
@@ -1106,6 +1138,7 @@ def build_risk_graph_context(graph: GraphPayload) -> tuple[dict[str, object], Sc
             "title": node.title,
             "status": node.status,
             "blocker_priority": node.blockerPriority,
+            "actual_start_week": node.actualStartWeek,
             "phase1_relevance": node.phase1Relevance,
             "ind_relevance": node.indRelevance,
             "decision_supported": node.decisionSupported,

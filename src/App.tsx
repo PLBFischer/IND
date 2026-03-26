@@ -9,6 +9,7 @@ import { PathwayNodeEditor } from './components/PathwayNodeEditor';
 import { PathwayPanel } from './components/PathwayPanel';
 import { ProgramContextPanel } from './components/ProgramContextPanel';
 import { ReviewPanel } from './components/ReviewPanel';
+import { TimelinePanel } from './components/TimelinePanel';
 import { Toolbar } from './components/Toolbar';
 import {
   autoLayoutGraphState,
@@ -142,6 +143,7 @@ type InteractionMode =
   | null;
 
 const buildScheduleRequestGraph = (
+  program: ProgramContext,
   personnel: Personnel[],
   nodes: FlowNode[],
   edges: FlowEdge[],
@@ -149,6 +151,12 @@ const buildScheduleRequestGraph = (
   const experimentNodes = getExperimentNodes(nodes);
   const experimentEdges = getExperimentEdges(nodes, edges);
   return {
+    program: {
+      programTitle: program.programTitle,
+      targetPhase1Design: program.targetPhase1Design,
+      targetIndStrategy: program.targetIndStrategy,
+      currentWeek: program.currentWeek,
+    },
     personnel: personnel.map((person) => ({
       name: person.name,
       hoursPerWeek: person.hoursPerWeek,
@@ -171,6 +179,7 @@ const buildScheduleRequestGraph = (
       operators: node.operators,
       owner: node.owner,
       status: node.status,
+      actualStartWeek: node.actualStartWeek ?? null,
       blockerPriority: node.blockerPriority,
       phase1Relevance: node.phase1Relevance,
       indRelevance: node.indRelevance,
@@ -196,6 +205,7 @@ const buildAnalysisGraph = (
     programTitle: program.programTitle,
     targetPhase1Design: program.targetPhase1Design,
     targetIndStrategy: program.targetIndStrategy,
+    currentWeek: program.currentWeek,
   },
   personnel: personnel.map((person) => ({
     name: person.name,
@@ -221,6 +231,7 @@ const buildAnalysisGraph = (
           operators: node.operators,
           owner: node.owner,
           status: node.status,
+          actualStartWeek: node.actualStartWeek ?? null,
           blockerPriority: node.blockerPriority,
           phase1Relevance: node.phase1Relevance,
           indRelevance: node.indRelevance,
@@ -274,6 +285,7 @@ function App() {
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
   const [isAssignedView, setIsAssignedView] = useState(false);
+  const [isTimelineOpen, setIsTimelineOpen] = useState(false);
   const [isAccelerating, setIsAccelerating] = useState(false);
   const [accelerateProposal, setAccelerateProposal] = useState<AccelerationProposal | null>(
     null,
@@ -333,7 +345,7 @@ function App() {
   const showParallelizationMultiplier = selectedExperimentNode
     ? hasIncomingParallelizedEdge(edges, selectedExperimentNode.id)
     : false;
-  const scheduleGraphInput = buildScheduleRequestGraph(personnel, nodes, edges);
+  const scheduleGraphInput = buildScheduleRequestGraph(program, personnel, nodes, edges);
   const analysisGraph = buildAnalysisGraph(program, personnel, nodes, edges);
   const canAccelerate = experimentNodes.length > 0 && budgetUsd !== null;
   const schedulingSignature = JSON.stringify(scheduleGraphInput);
@@ -341,7 +353,7 @@ function App() {
   const totalCostDisplay = `${`$${totalCost}`} / ${
     budgetUsd !== null ? `$${formatCurrencyMetric(budgetUsd)}` : 'No budget'
   }`;
-  const plannedDuration = isAssignedView && schedule
+  const plannedDuration = schedule
     ? `${formatMetric(schedule.makespan)} weeks`
     : 'Not run';
   const scheduleByNodeId = Object.fromEntries(
@@ -840,12 +852,12 @@ function App() {
   };
 
   useEffect(() => {
-    if (!isAssignedView) {
+    if (!isAssignedView && !isTimelineOpen) {
       return;
     }
 
     void runSchedule();
-  }, [isAssignedView, schedulingSignature]);
+  }, [isAssignedView, isTimelineOpen, schedulingSignature]);
 
   const handleAssign = () => {
     if (isAssignedView) {
@@ -855,6 +867,10 @@ function App() {
     }
 
     setIsAssignedView(true);
+  };
+
+  const handleToggleTimeline = () => {
+    setIsTimelineOpen((current) => !current);
   };
 
   const requestAccelerationProposal = async (
@@ -1570,6 +1586,7 @@ function App() {
         isEvidenceOpen={isEvidenceOpen}
         isReviewOpen={isReviewOpen}
         isReviewing={isReviewLoading}
+        isTimelineOpen={isTimelineOpen}
         onAssign={handleAssign}
         onAccelerate={handleAccelerate}
         onToggleEvidence={() => {
@@ -1597,6 +1614,7 @@ function App() {
 
           void requestReview();
         }}
+        onToggleTimeline={handleToggleTimeline}
         onAddExperimentNode={() => openCreateEditor('experiment')}
         onAddPathwayNode={() => openCreateEditor('biological_pathway')}
       />
@@ -1764,6 +1782,14 @@ function App() {
           onAccept={handleAcceptAcceleration}
           onReject={handleRejectAcceleration}
           onStop={handleAccelerate}
+        />
+        <TimelinePanel
+          isOpen={isTimelineOpen}
+          currentWeek={program.currentWeek}
+          nodes={experimentNodes}
+          schedule={schedule}
+          isLoading={isAssigning}
+          onClose={() => setIsTimelineOpen(false)}
         />
       </div>
     </div>

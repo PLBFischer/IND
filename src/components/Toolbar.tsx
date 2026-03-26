@@ -9,10 +9,12 @@ type ToolbarProps = {
   isEvidenceOpen: boolean;
   isReviewOpen: boolean;
   isReviewing: boolean;
+  isTimelineOpen: boolean;
   onAssign: () => void;
   onAccelerate: () => void;
   onToggleEvidence: () => void;
   onToggleReview: () => void;
+  onToggleTimeline: () => void;
   onAddExperimentNode: () => void;
   onAddPathwayNode: () => void;
 };
@@ -28,10 +30,12 @@ export function Toolbar({
   isEvidenceOpen,
   isReviewOpen,
   isReviewing,
+  isTimelineOpen,
   onAssign,
   onAccelerate,
   onToggleEvidence,
   onToggleReview,
+  onToggleTimeline,
   onAddExperimentNode,
   onAddPathwayNode,
 }: ToolbarProps) {
@@ -81,6 +85,13 @@ export function Toolbar({
           onClick={onToggleReview}
         >
           {isReviewing && isReviewOpen ? 'Reviewing...' : 'Review'}
+        </button>
+        <button
+          type="button"
+          className={isTimelineOpen ? 'button button--primary' : 'button'}
+          onClick={onToggleTimeline}
+        >
+          Timeline
         </button>
         <button type="button" className="button" onClick={onAddPathwayNode}>
           Add Pathway

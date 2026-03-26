@@ -36,6 +36,7 @@ const defaultProgram: ProgramContext = {
     'Single ascending dose followed by short multiple ascending dose in healthy volunteers, with PK, food-effect, and CSF-enabled biomarker exploration if exposure supports it.',
   targetIndStrategy:
     'Build an IND package around oral exposure, CNS penetration, early efficacy plausibility, and a coherent nonclinical safety narrative that supports first-in-human dose escalation.',
+  currentWeek: 1,
 };
 
 const defaultState: GraphState = {
@@ -63,6 +64,7 @@ const defaultState: GraphState = {
       operators: ['Avery Chen'],
       owner: 'Avery Chen',
       status: 'planned',
+      actualStartWeek: null,
       blockerPriority: 'critical',
       phase1Relevance:
         'The target Phase 1 design assumes oral dosing can achieve CNS-relevant exposure margins.',
@@ -95,6 +97,7 @@ const defaultState: GraphState = {
       operators: ['Morgan Patel'],
       owner: 'Morgan Patel',
       status: 'planned',
+      actualStartWeek: null,
       blockerPriority: 'supporting',
       phase1Relevance:
         'Helps ensure formulation used in tox and early clinical supply tells a coherent story.',
@@ -127,6 +130,7 @@ const defaultState: GraphState = {
       operators: ['Sam Rivera'],
       owner: 'Sam Rivera',
       status: 'planned',
+      actualStartWeek: null,
       blockerPriority: 'critical',
       phase1Relevance:
         'Anchors the intended biomarker and exposure interpretation for the early clinical design.',
@@ -159,6 +163,7 @@ const defaultState: GraphState = {
       operators: ['Avery Chen', 'Morgan Patel'],
       owner: 'Avery Chen',
       status: 'planned',
+      actualStartWeek: null,
       blockerPriority: 'critical',
       phase1Relevance:
         'Directly shapes whether the intended escalation strategy remains credible.',
@@ -313,6 +318,7 @@ const normalizeProgramContext = (value: unknown): ProgramContext => {
         : '',
     targetIndStrategy:
       typeof value.targetIndStrategy === 'string' ? value.targetIndStrategy : '',
+    currentWeek: Math.max(1, normalizeNumber(value.currentWeek, 1)),
   };
 };
 
@@ -360,6 +366,10 @@ const normalizeExperimentNode = (node: Record<string, unknown>): ExperimentNode 
       : [],
     owner: typeof node.owner === 'string' ? node.owner : undefined,
     status,
+    actualStartWeek:
+      typeof node.actualStartWeek === 'number' && Number.isFinite(node.actualStartWeek)
+        ? Math.max(1, node.actualStartWeek)
+        : null,
     blockerPriority: isValidBlockerPriority(node.blockerPriority)
       ? node.blockerPriority
       : 'supporting',

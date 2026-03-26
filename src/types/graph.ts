@@ -80,6 +80,7 @@ export type ProgramContext = {
   programTitle?: string;
   targetPhase1Design: string;
   targetIndStrategy: string;
+  currentWeek: number;
 };
 
 export type Personnel = {
@@ -111,6 +112,7 @@ export type ExperimentNode = BaseNode & {
   operators: string[];
   owner?: string;
   status: NodeStatus;
+  actualStartWeek?: number | null;
   blockerPriority: BlockerPriority;
   phase1Relevance: string;
   indRelevance: string;

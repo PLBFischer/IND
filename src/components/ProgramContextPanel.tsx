@@ -64,6 +64,10 @@ export function ProgramContextPanel({
           {budgetUsd !== null ? `$${budgetUsd.toLocaleString()}` : 'No budget set'}
         </p>
         <p>
+          <span>Current Week</span>
+          {program.currentWeek}
+        </p>
+        <p>
           <span>Personnel</span>
           {personnel.length > 0
             ? `${personnel.length} active team member${personnel.length === 1 ? '' : 's'}`
@@ -113,6 +117,22 @@ export function ProgramContextPanel({
                 value={budgetUsd ?? ''}
                 onChange={(event) => onBudgetChange(event.target.value)}
                 placeholder="USD"
+              />
+            </label>
+
+            <label className="field">
+              <span>Current Week</span>
+              <input
+                type="number"
+                step="1"
+                min="1"
+                value={program.currentWeek}
+                onChange={(event) =>
+                  onProgramChange({
+                    currentWeek: Math.max(1, Number(event.target.value) || 1),
+                  })
+                }
+                placeholder="1"
               />
             </label>
 
