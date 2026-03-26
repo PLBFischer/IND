@@ -76,6 +76,18 @@ const node: BiologicalPathwayNode = {
         component_entity_ids: [],
         notes: '',
       },
+      {
+        entity_id: 'E3',
+        canonical_name: 'TNF target gene',
+        entity_type: 'gene',
+        entity_kind: 'simple_entity',
+        aliases: [],
+        source_mention_ids: [],
+        normalization_status: 'exact_normalized',
+        base_entity_id: null,
+        component_entity_ids: [],
+        notes: '',
+      },
     ],
     default_relations: [
       {
@@ -92,6 +104,22 @@ const node: BiologicalPathwayNode = {
         confidence: 0.9,
         evidence_ids: ['EV1'],
         summary: 'TNF activates NF-kB.',
+        notes: '',
+      },
+      {
+        relation_id: 'R2',
+        source_entity_id: 'E2',
+        target_entity_id: 'E3',
+        relation_type: 'regulates_expression',
+        relation_category: 'interaction',
+        assertion_status: 'explicit',
+        direction: 'source_to_target',
+        support_class: 'current_paper_direct',
+        mechanistic_status: 'indirect',
+        evidence_strength: 'strong',
+        confidence: 0.88,
+        evidence_ids: ['EV1'],
+        summary: 'NF-kB regulates expression of TNF target gene.',
         notes: '',
       },
     ],
@@ -178,7 +206,7 @@ describe('PathwayPanel', () => {
   });
 
   it('shows a clear-query control when a query response is active', () => {
-    render(
+    const { container } = render(
       <PathwayPanel
         node={node}
         isOpen
@@ -205,5 +233,8 @@ describe('PathwayPanel', () => {
     );
 
     expect(screen.getByRole('button', { name: 'Show Full Network' })).toBeInTheDocument();
+    expect(screen.getByText('TNF target gene')).toBeInTheDocument();
+    expect(container.querySelectorAll('.pathway-panel__entity-label--dimmed').length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('.pathway-panel__edge--dimmed').length).toBeGreaterThan(0);
   });
 });

@@ -197,10 +197,6 @@ export const getVisiblePathwayEntityIds = (
     entityIds.add(relation.target_entity_id);
   }
 
-  if (queryResponse?.subgraph_entity_ids.length) {
-    return new Set(queryResponse.subgraph_entity_ids);
-  }
-
   return entityIds;
 };
 

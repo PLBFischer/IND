@@ -180,18 +180,24 @@ export function PathwayPanel({
             includeStructuralRelations: true,
             modality,
             minConfidence: 0.65,
-          }).filter((relation) =>
-            queryResponse?.subgraph_relation_ids.length
-              ? queryResponse.subgraph_relation_ids.includes(relation.relation_id)
-              : true,
-          )
+          })
         : [],
-    [graph, modality, queryResponse],
+    [graph, modality],
   );
   const layout = useMemo(
     () => (graph ? computePathwayLayout(graph, visibleEntityIds) : {}),
     [graph, visibleEntityIds],
   );
+  const highlightedEntityIds = useMemo(
+    () => new Set(queryResponse?.subgraph_entity_ids ?? []),
+    [queryResponse],
+  );
+  const highlightedRelationIds = useMemo(
+    () => new Set(queryResponse?.subgraph_relation_ids ?? []),
+    [queryResponse],
+  );
+  const hasActiveSubgraphHighlight =
+    highlightedEntityIds.size > 0 || highlightedRelationIds.size > 0;
 
   useEffect(() => {
     zoomRef.current = zoom;
@@ -610,6 +616,8 @@ export function PathwayPanel({
               const label = getPathwayRelationEdgeLabel(relation.relation_type);
               const midX = hasBidirectionalPair ? 0.25 * startX + 0.5 * controlX + 0.25 * endX : (startX + endX) / 2;
               const midY = hasBidirectionalPair ? 0.25 * startY + 0.5 * controlY + 0.25 * endY : (startY + endY) / 2;
+              const isDimmed =
+                hasActiveSubgraphHighlight && !highlightedRelationIds.has(relation.relation_id);
 
               return (
                 <g key={relation.relation_id}>
@@ -617,11 +625,16 @@ export function PathwayPanel({
                     d={path}
                     className={`${getRelationStyleClass(graph, relation.relation_id)} ${getPathwayRelationInteractionClass(
                       relation.relation_type,
-                    )}`}
+                    )} ${isDimmed ? 'pathway-panel__edge--dimmed' : ''}`}
                     markerEnd={getPathwayRelationMarkerId(relation.relation_type)}
                   />
                   {label ? (
-                    <text x={midX} y={midY - 8} textAnchor="middle" className="pathway-panel__edge-label">
+                    <text
+                      x={midX}
+                      y={midY - 8}
+                      textAnchor="middle"
+                      className={`pathway-panel__edge-label ${isDimmed ? 'pathway-panel__edge-label--dimmed' : ''}`}
+                    >
                       {label}
                     </text>
                   ) : null}
@@ -664,6 +677,10 @@ export function PathwayPanel({
               const style = getPathwayEntityStyle(entity.entity_type);
               const halfWidth = style.width / 2;
               const halfHeight = style.height / 2;
+              const isDimmed =
+                hasActiveSubgraphHighlight && !highlightedEntityIds.has(entityId);
+              const renderedFill = isDimmed ? '#f3f4f6' : style.fill;
+              const renderedStroke = isDimmed ? '#c5cbd3' : style.stroke;
 
               return (
                 <g
@@ -676,8 +693,8 @@ export function PathwayPanel({
                     <circle
                       r={style.width / 2}
                       className="pathway-panel__entity"
-                      fill={style.fill}
-                      stroke={style.stroke}
+                      fill={renderedFill}
+                      stroke={renderedStroke}
                     />
                   ) : null}
                   {style.shape === 'rect' || style.shape === 'pill' ? (
@@ -689,19 +706,22 @@ export function PathwayPanel({
                       rx={style.radius ?? 0}
                       ry={style.radius ?? 0}
                       className="pathway-panel__entity"
-                      fill={style.fill}
-                      stroke={style.stroke}
+                      fill={renderedFill}
+                      stroke={renderedStroke}
                     />
                   ) : null}
                   {style.shape === 'hexagon' ? (
                     <polygon
                       points={getHexagonPoints(style.width, style.height)}
                       className="pathway-panel__entity"
-                      fill={style.fill}
-                      stroke={style.stroke}
+                      fill={renderedFill}
+                      stroke={renderedStroke}
                     />
                   ) : null}
-                  <text className="pathway-panel__entity-label" textAnchor="middle">
+                  <text
+                    className={`pathway-panel__entity-label ${isDimmed ? 'pathway-panel__entity-label--dimmed' : ''}`}
+                    textAnchor="middle"
+                  >
                     <tspan x={0} dy="-0.2em">
                       {getEntityNameById(graph, entityId)}
                     </tspan>
