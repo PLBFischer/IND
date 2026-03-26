@@ -34,6 +34,7 @@ from backend.pathway_models import (
     AggregationPassResult,
     EvidenceCard,
     EvidenceItem,
+    DuplicateEntityReview,
     ExtractionPassResult,
     NormalizedEntity,
     ParsedSourceSummary,
@@ -55,6 +56,7 @@ from backend.pathway_models import (
     UnresolvedIssue,
 )
 from backend.pathway_prompts import (
+    DUPLICATE_ENTITY_REVIEW_PROMPT,
     EXTRACTION_SYSTEM_PROMPT,
     QUERY_SYSTEM_PROMPT,
 )
@@ -2050,12 +2052,12 @@ VAGUE_LANGUAGE_PATTERNS = [
     "associated with",
 ]
 GREEK_REPLACEMENTS = {
-    "α": "alpha",
-    "β": "beta",
-    "γ": "gamma",
-    "δ": "delta",
-    "κ": "kappa",
-    "λ": "lambda",
+    "α": " alpha ",
+    "β": " beta ",
+    "γ": " gamma ",
+    "δ": " delta ",
+    "κ": " kappa ",
+    "λ": " lambda ",
 }
 
 
@@ -2063,7 +2065,10 @@ def normalize_surface_form(value: str) -> str:
     normalized = value.strip().lower()
     for greek, replacement in GREEK_REPLACEMENTS.items():
         normalized = normalized.replace(greek, replacement)
-    normalized = normalized.replace("/", " ").replace("-", " ").replace(":", " ")
+    greek_words_pattern = r"(alpha|beta|gamma|delta|kappa|lambda)"
+    normalized = re.sub(rf"([a-z0-9]){greek_words_pattern}\b", r"\1 \2", normalized)
+    normalized = re.sub(rf"\b{greek_words_pattern}([a-z0-9])", r"\1 \2", normalized)
+    normalized = normalized.replace("/", " ").replace("-", " ").replace(":", " ").replace("_", " ")
     normalized = re.sub(r"\s+", " ", normalized)
     normalized = normalized.strip(" .,;()[]{}")
     return normalized
@@ -2864,6 +2869,143 @@ def merge_claim_extractions_into_graph(
     )
 
 
+def review_duplicate_entities_with_llm(graph: PathwayGraph) -> DuplicateEntityReview:
+    entity_catalog = [
+        {
+            "entity_id": entity.entity_id,
+            "canonical_name": entity.canonical_name,
+            "entity_type": entity.entity_type,
+            "entity_kind": entity.entity_kind,
+            "aliases": entity.aliases,
+        }
+        for entity in graph.normalized_entities
+    ]
+    return call_pathway_model(
+        feature_name="Pathway duplicate entity review",
+        model_env="OPENAI_PATHWAY_NORMALIZATION_MODEL",
+        default_model="gpt-5.4-mini-2026-03-17",
+        schema_name="pathway_duplicate_entity_review",
+        instructions=DUPLICATE_ENTITY_REVIEW_PROMPT,
+        input_payload={"entity_catalog_json": entity_catalog},
+        response_model=DuplicateEntityReview,
+        max_output_tokens=3000,
+    )
+
+
+def apply_duplicate_entity_merges(
+    graph: PathwayGraph,
+    review: DuplicateEntityReview,
+) -> PathwayGraph:
+    entities_by_id = {entity.entity_id: entity.model_copy(deep=True) for entity in graph.normalized_entities}
+    parent = {entity.entity_id: entity.entity_id for entity in graph.normalized_entities}
+
+    def find(entity_id: str) -> str:
+        while parent[entity_id] != entity_id:
+            parent[entity_id] = parent[parent[entity_id]]
+            entity_id = parent[entity_id]
+        return entity_id
+
+    def union(left: str, right: str) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root == right_root:
+            return
+        left_entity = entities_by_id[left_root]
+        right_entity = entities_by_id[right_root]
+        if left_entity.canonical_name <= right_entity.canonical_name:
+            keep, drop = left_root, right_root
+        else:
+            keep, drop = right_root, left_root
+        parent[drop] = keep
+
+    for suggestion in review.suggestions:
+        if suggestion.decision != "merge" or not suggestion.safe_to_auto_merge:
+            continue
+        if suggestion.confidence < 0.9:
+            continue
+        if suggestion.entity_id_a not in entities_by_id or suggestion.entity_id_b not in entities_by_id:
+            continue
+        left = entities_by_id[suggestion.entity_id_a]
+        right = entities_by_id[suggestion.entity_id_b]
+        if left.entity_type != right.entity_type or left.entity_kind != right.entity_kind:
+            continue
+        union(suggestion.entity_id_a, suggestion.entity_id_b)
+
+    remap = {entity_id: find(entity_id) for entity_id in entities_by_id}
+    if all(entity_id == mapped for entity_id, mapped in remap.items()):
+        return graph
+
+    merged_entities: dict[str, NormalizedEntity] = {}
+    for entity in graph.normalized_entities:
+        root_id = remap[entity.entity_id]
+        if root_id not in merged_entities:
+            merged_entities[root_id] = entity.model_copy(deep=True)
+            merged_entities[root_id].entity_id = root_id
+            continue
+        target = merged_entities[root_id]
+        alias_candidates = [entity.canonical_name, *entity.aliases]
+        for alias in alias_candidates:
+            if alias != target.canonical_name and alias not in target.aliases:
+                target.aliases.append(alias)
+        if target.normalization_status != "alias_normalized":
+            target.normalization_status = "alias_normalized"
+        target.notes = (target.notes + " Duplicate naming variants merged.").strip()
+
+    relation_accumulator: dict[tuple[str, str, str, str], AggregatedRelation] = {}
+    relation_sources = graph.default_relations + graph.structural_relations + graph.nondefault_relations
+    default_ids = {relation.relation_id for relation in graph.default_relations}
+    structural_ids = {relation.relation_id for relation in graph.structural_relations}
+
+    def absorb_relation(base: AggregatedRelation, relation: AggregatedRelation) -> None:
+        for evidence_id in relation.evidence_ids:
+            if evidence_id not in base.evidence_ids:
+                base.evidence_ids.append(evidence_id)
+        base.confidence = max(base.confidence, relation.confidence)
+        strengths = {"weak": 0, "moderate": 1, "strong": 2}
+        if relation.evidence_strength and (
+            not base.evidence_strength
+            or strengths[relation.evidence_strength] > strengths.get(base.evidence_strength, -1)
+        ):
+            base.evidence_strength = relation.evidence_strength
+        if relation.support_class == "current_paper_direct":
+            base.support_class = "current_paper_direct"
+
+    for relation in relation_sources:
+        remapped_source = remap.get(relation.source_entity_id, relation.source_entity_id)
+        remapped_target = remap.get(relation.target_entity_id, relation.target_entity_id)
+        relation_copy = relation.model_copy(deep=True)
+        relation_copy.source_entity_id = remapped_source
+        relation_copy.target_entity_id = remapped_target
+        key = (
+            remapped_source,
+            remapped_target,
+            relation_copy.relation_type,
+            relation_copy.relation_category,
+        )
+        if key not in relation_accumulator:
+            relation_accumulator[key] = relation_copy
+        else:
+            absorb_relation(relation_accumulator[key], relation_copy)
+
+    merged_default: list[AggregatedRelation] = []
+    merged_structural: list[AggregatedRelation] = []
+    merged_nondefault: list[AggregatedRelation] = []
+    for relation in relation_accumulator.values():
+        if relation.relation_id in structural_ids:
+            merged_structural.append(relation)
+        elif relation.relation_id in default_ids:
+            merged_default.append(relation)
+        else:
+            merged_nondefault.append(relation)
+
+    graph_payload = graph.model_dump()
+    graph_payload["normalized_entities"] = [entity.model_dump() for entity in merged_entities.values()]
+    graph_payload["default_relations"] = [relation.model_dump() for relation in merged_default]
+    graph_payload["structural_relations"] = [relation.model_dump() for relation in merged_structural]
+    graph_payload["nondefault_relations"] = [relation.model_dump() for relation in merged_nondefault]
+    return PathwayGraph(**graph_payload)
+
+
 def require_openai_client(feature_name: str) -> OpenAI:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -3276,6 +3418,12 @@ def build_pathway_graph_with_llm(payload: PathwayBuildRequest) -> PathwayBuildRe
         )
 
     graph = merge_claim_extractions_into_graph(payload, parsed_sources, extracted_claims)
+    try:
+        duplicate_review = review_duplicate_entities_with_llm(graph)
+    except HTTPException as error:
+        warnings.append(f"Duplicate-entity review was skipped: {error.detail}")
+    else:
+        graph = apply_duplicate_entity_merges(graph, duplicate_review)
 
     if not graph.default_relations and not graph.structural_relations and not graph.nondefault_relations:
         return PathwayBuildResponse(

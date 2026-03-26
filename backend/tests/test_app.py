@@ -10,6 +10,7 @@ from backend.app import (
     GraphPayload,
     ReviewChoice,
     RiskScanResponse,
+    apply_duplicate_entity_merges,
     apply_pathway_admission_policy,
     build_deterministic_sanity_report,
     build_chat_graph_context,
@@ -17,11 +18,13 @@ from backend.app import (
     extract_pubmed_id_from_value,
     extract_pmcid_from_pubmed_html,
     fetch_url_text,
+    normalize_surface_form,
     resolve_source_text,
     solve_schedule_response,
 )
 from backend.pathway_models import (
     AggregatedRelation,
+    DuplicateEntityReview,
     EvidenceItem,
     NormalizedEntity,
     PathwayGraph,
@@ -540,6 +543,119 @@ def test_results_backed_claims_are_rescued_from_overly_conservative_labels() -> 
     assert relation.support_class == "current_paper_direct"
     assert relation.mechanistic_status == "indirect"
     assert relation.evidence_strength == "moderate"
+
+
+def test_normalize_surface_form_merges_greek_suffix_variants() -> None:
+    assert normalize_surface_form("TNF-α") == normalize_surface_form("TNFα")
+    assert normalize_surface_form("TNF α") == normalize_surface_form("TNFα")
+
+
+def test_apply_duplicate_entity_merges_combines_safe_duplicate_entities() -> None:
+    graph = PathwayGraph(
+        paper_metadata={"title": "TNF demo", "pubmed_id": None, "pmcid": None, "doi": None},
+        entity_mentions=[],
+        evidence_items=[],
+        normalized_entities=[
+            NormalizedEntity(
+                entity_id="E_TNF1",
+                canonical_name="TNF-α",
+                entity_type="protein",
+                entity_kind="simple_entity",
+                aliases=[],
+                source_mention_ids=[],
+                normalization_status="exact_normalized",
+                base_entity_id=None,
+                component_entity_ids=[],
+                notes="",
+            ),
+            NormalizedEntity(
+                entity_id="E_TNF2",
+                canonical_name="TNFα",
+                entity_type="protein",
+                entity_kind="simple_entity",
+                aliases=[],
+                source_mention_ids=[],
+                normalization_status="exact_normalized",
+                base_entity_id=None,
+                component_entity_ids=[],
+                notes="",
+            ),
+            NormalizedEntity(
+                entity_id="E_CAMP",
+                canonical_name="cyclic AMP",
+                entity_type="other",
+                entity_kind="simple_entity",
+                aliases=[],
+                source_mention_ids=[],
+                normalization_status="exact_normalized",
+                base_entity_id=None,
+                component_entity_ids=[],
+                notes="",
+            ),
+        ],
+        default_relations=[
+            AggregatedRelation(
+                relation_id="R_tnf_1",
+                source_entity_id="E_TNF1",
+                target_entity_id="E_CAMP",
+                relation_type="decreases",
+                relation_category="interaction",
+                assertion_status="explicit",
+                direction="source_to_target",
+                support_class="current_paper_direct",
+                mechanistic_status="indirect",
+                evidence_strength="strong",
+                confidence=0.9,
+                evidence_ids=["EV1"],
+                summary="TNF-α decreases cyclic AMP.",
+                notes="",
+            ),
+            AggregatedRelation(
+                relation_id="R_tnf_2",
+                source_entity_id="E_TNF2",
+                target_entity_id="E_CAMP",
+                relation_type="decreases",
+                relation_category="interaction",
+                assertion_status="explicit",
+                direction="source_to_target",
+                support_class="current_paper_direct",
+                mechanistic_status="indirect",
+                evidence_strength="strong",
+                confidence=0.88,
+                evidence_ids=["EV2"],
+                summary="TNFα decreases cyclic AMP.",
+                notes="",
+            ),
+        ],
+        structural_relations=[],
+        nondefault_relations=[],
+        normalization_decisions=[],
+        unresolved_issues=[],
+    )
+
+    review = DuplicateEntityReview.model_validate(
+        {
+            "suggestions": [
+                {
+                    "entity_id_a": "E_TNF1",
+                    "entity_id_b": "E_TNF2",
+                    "decision": "merge",
+                    "safe_to_auto_merge": True,
+                    "confidence": 0.98,
+                    "rationale": "Greek-letter punctuation variant of the same cytokine.",
+                }
+            ]
+        }
+    )
+
+    merged = apply_duplicate_entity_merges(graph, review)
+
+    assert len(merged.normalized_entities) == 2
+    assert len(merged.default_relations) == 1
+    merged_entity = next(entity for entity in merged.normalized_entities if "TNF" in entity.canonical_name)
+    assert "TNFα" in merged_entity.aliases or "TNF-α" in merged_entity.aliases
+    assert merged.default_relations[0].source_entity_id == merged_entity.entity_id
+    assert set(merged.default_relations[0].evidence_ids) == {"EV1", "EV2"}
 
 
 def test_sanity_report_flags_complex_membership_and_modified_form_structure() -> None:

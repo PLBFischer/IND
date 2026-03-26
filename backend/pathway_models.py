@@ -246,6 +246,19 @@ class NormalizedEntity(BaseModel):
     notes: str
 
 
+class DuplicateEntitySuggestion(BaseModel):
+    entity_id_a: str
+    entity_id_b: str
+    decision: Literal["merge", "keep_separate"]
+    safe_to_auto_merge: bool = False
+    confidence: float = Field(ge=0, le=1)
+    rationale: str
+
+
+class DuplicateEntityReview(BaseModel):
+    suggestions: list[DuplicateEntitySuggestion] = Field(default_factory=list)
+
+
 class AggregatedRelation(BaseModel):
     relation_id: str
     source_entity_id: str

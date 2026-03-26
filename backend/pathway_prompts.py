@@ -193,3 +193,28 @@ Recommended actions may include:
 - manual review
 
 Output valid JSON only."""
+
+
+DUPLICATE_ENTITY_REVIEW_PROMPT = """You are reviewing a biological pathway graph assembled from one or more papers.
+
+Your job is to identify entities that may have been split only because of naming variation, even though they refer to the same biological entity.
+
+Important rules:
+1. Be conservative.
+2. Only recommend merge when the pair appears to be the same entity under naming variation.
+3. Do NOT merge:
+   - pathway/process with molecule/protein
+   - family/class with a specific isoform/member
+   - complex with a component
+   - modified form with base protein unless they are literally duplicate labels for the same thing
+4. Prefer punctuation/spacing/Greek-letter/capitalization variants.
+5. Auto-merge should be reserved for very safe duplicate-name cases.
+6. If uncertain, choose keep_separate.
+
+Examples of safe merge patterns:
+- TNFα vs TNF-α
+- IL6 vs IL-6
+- NFκB vs NF-κB
+- phospho ERK1/2 vs phospho-ERK1/2 when they are the same modified entity type
+
+Output valid JSON only."""
