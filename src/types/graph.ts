@@ -1,3 +1,19 @@
+import type {
+  PathwayBuildResponse,
+  PathwayGraph,
+  PathwayPaperSource,
+  PathwayQueryHistoryItem,
+  PathwayQueryResponse,
+  PathwaySanityReport,
+} from './pathway';
+
+export const NODE_KIND_OPTIONS = [
+  'experiment',
+  'biological_pathway',
+] as const;
+
+export type NodeKind = (typeof NODE_KIND_OPTIONS)[number];
+
 export const NODE_TYPE_OPTIONS = [
   'in_vitro',
   'in_vivo',
@@ -77,9 +93,16 @@ export type Personnel = {
   hoursPerWeek: number;
 };
 
-export type FlowNode = {
+export type BaseNode = {
   id: string;
   title: string;
+  x: number;
+  y: number;
+  nodeKind: NodeKind;
+};
+
+export type ExperimentNode = BaseNode & {
+  nodeKind: 'experiment';
   type: NodeType;
   objective: string;
   procedureSummary: string;
@@ -98,9 +121,26 @@ export type FlowNode = {
   phase1Relevance: string;
   indRelevance: string;
   evidenceRefs: string[];
-  x: number;
-  y: number;
+  linkedPathwayNodeIds?: string[];
 };
+
+export type BiologicalPathwayNode = BaseNode & {
+  nodeKind: 'biological_pathway';
+  summary?: string;
+  focusTerms?: string[];
+  paperSources: PathwayPaperSource[];
+  extractionStatus: 'empty' | 'building' | 'ready' | 'error';
+  extractionError?: string | null;
+  pathwayGraph?: PathwayGraph | null;
+  sanityReport?: PathwaySanityReport | null;
+  queryHistory?: PathwayQueryHistoryItem[];
+  lastBuiltAt?: string | null;
+  linkedExperimentNodeIds?: string[];
+  lastBuildResponse?: PathwayBuildResponse | null;
+  latestQueryResponse?: PathwayQueryResponse | null;
+};
+
+export type FlowNode = ExperimentNode | BiologicalPathwayNode;
 
 export type FlowEdge = {
   id: string;

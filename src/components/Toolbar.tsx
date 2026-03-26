@@ -17,7 +17,8 @@ type ToolbarProps = {
   onToggleReview: () => void;
   onExport: () => void;
   onImport: (value: string) => string | null;
-  onAddNode: () => void;
+  onAddExperimentNode: () => void;
+  onAddPathwayNode: () => void;
 };
 
 export function Toolbar({
@@ -37,7 +38,8 @@ export function Toolbar({
   onToggleReview,
   onExport,
   onImport,
-  onAddNode,
+  onAddExperimentNode,
+  onAddPathwayNode,
 }: ToolbarProps) {
   return (
     <header className="toolbar">
@@ -90,8 +92,11 @@ export function Toolbar({
         <button type="button" className="button" onClick={onExport}>
           Export
         </button>
-        <button type="button" className="button button--primary" onClick={onAddNode}>
-          Add Node
+        <button type="button" className="button" onClick={onAddPathwayNode}>
+          Add Pathway
+        </button>
+        <button type="button" className="button button--primary" onClick={onAddExperimentNode}>
+          Add Experiment
         </button>
       </div>
     </header>

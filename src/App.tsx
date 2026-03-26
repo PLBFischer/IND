@@ -5,6 +5,8 @@ import { Canvas } from './components/Canvas';
 import { DeepRiskPanel } from './components/DeepRiskPanel';
 import { EvidencePanel } from './components/EvidencePanel';
 import { NodeEditor } from './components/NodeEditor';
+import { PathwayNodeEditor } from './components/PathwayNodeEditor';
+import { PathwayPanel } from './components/PathwayPanel';
 import { ProgramContextPanel } from './components/ProgramContextPanel';
 import { ReviewPanel } from './components/ReviewPanel';
 import { Toolbar } from './components/Toolbar';
@@ -16,12 +18,15 @@ import {
 import type {
   AccelerateResponse,
   AccelerationProposal,
+  BiologicalPathwayNode,
   DeepRiskAnalysis,
   DeepRiskResponse,
   EvidenceQueryResponse,
   EditorMode,
+  ExperimentNode,
   FlowEdge,
   FlowNode,
+  NodeKind,
   NodeRiskAssessment,
   Personnel,
   ProgramContext,
@@ -33,13 +38,19 @@ import type {
 import {
   createId,
   edgeExists,
+  getExperimentEdges,
+  getExperimentNodes,
   getNodeById,
   hasIncomingParallelizedEdge,
+  isExperimentNode,
+  isPathwayNode,
   isActiveNodeStatus,
 } from './utils/graph';
 import { formatMetric, getTotalCost } from './utils/metrics';
+import { createEmptyPathwayNode, getExperimentNodeOptions } from './utils/pathway';
 import { getWarningLevel } from './utils/risk';
 import { STORAGE_KEY } from './utils/constants';
+import type { PathwayBuildResponse, PathwayQueryResponse } from './types/pathway';
 
 type DragState = {
   nodeId: string;
@@ -83,40 +94,46 @@ const buildScheduleRequestGraph = (
   personnel: Personnel[],
   nodes: FlowNode[],
   edges: FlowEdge[],
-) => ({
-  personnel: personnel.map((person) => ({
-    name: person.name,
-    hoursPerWeek: person.hoursPerWeek,
-  })),
-  nodes: nodes.map((node) => ({
-    id: node.id,
-    title: node.title,
-    type: node.type,
-    objective: node.objective,
-    procedureSummary: node.procedureSummary,
-    successCriteria: node.successCriteria,
-    decisionSupported: node.decisionSupported,
-    results: node.results,
-    operationalNotes: node.operationalNotes,
-    cost: node.cost,
-    duration: node.duration,
-    workHoursPerWeek: node.workHoursPerWeek,
-    parallelizationMultiplier: node.parallelizationMultiplier,
-    operators: node.operators,
-    owner: node.owner,
-    status: node.status,
-    blockerPriority: node.blockerPriority,
-    phase1Relevance: node.phase1Relevance,
-    indRelevance: node.indRelevance,
-    evidenceRefs: node.evidenceRefs,
-  })),
-  edges: edges.map((edge) => ({
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    parallelized: edge.parallelized,
-  })),
-});
+) => {
+  const experimentNodes = getExperimentNodes(nodes);
+  const experimentEdges = getExperimentEdges(nodes, edges);
+  return {
+    personnel: personnel.map((person) => ({
+      name: person.name,
+      hoursPerWeek: person.hoursPerWeek,
+    })),
+    nodes: experimentNodes.map((node) => ({
+      id: node.id,
+      nodeKind: node.nodeKind,
+      title: node.title,
+      type: node.type,
+      objective: node.objective,
+      procedureSummary: node.procedureSummary,
+      successCriteria: node.successCriteria,
+      decisionSupported: node.decisionSupported,
+      results: node.results,
+      operationalNotes: node.operationalNotes,
+      cost: node.cost,
+      duration: node.duration,
+      workHoursPerWeek: node.workHoursPerWeek,
+      parallelizationMultiplier: node.parallelizationMultiplier,
+      operators: node.operators,
+      owner: node.owner,
+      status: node.status,
+      blockerPriority: node.blockerPriority,
+      phase1Relevance: node.phase1Relevance,
+      indRelevance: node.indRelevance,
+      evidenceRefs: node.evidenceRefs,
+      linkedPathwayNodeIds: node.linkedPathwayNodeIds ?? [],
+    })),
+    edges: experimentEdges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      parallelized: edge.parallelized,
+    })),
+  };
+};
 
 const buildAnalysisGraph = (
   program: ProgramContext,
@@ -129,7 +146,58 @@ const buildAnalysisGraph = (
     targetPhase1Design: program.targetPhase1Design,
     targetIndStrategy: program.targetIndStrategy,
   },
-  ...buildScheduleRequestGraph(personnel, nodes, edges),
+  personnel: personnel.map((person) => ({
+    name: person.name,
+    hoursPerWeek: person.hoursPerWeek,
+  })),
+  nodes: nodes.map((node) =>
+    isExperimentNode(node)
+      ? {
+          id: node.id,
+          nodeKind: node.nodeKind,
+          title: node.title,
+          type: node.type,
+          objective: node.objective,
+          procedureSummary: node.procedureSummary,
+          successCriteria: node.successCriteria,
+          decisionSupported: node.decisionSupported,
+          results: node.results,
+          operationalNotes: node.operationalNotes,
+          cost: node.cost,
+          duration: node.duration,
+          workHoursPerWeek: node.workHoursPerWeek,
+          parallelizationMultiplier: node.parallelizationMultiplier,
+          operators: node.operators,
+          owner: node.owner,
+          status: node.status,
+          blockerPriority: node.blockerPriority,
+          phase1Relevance: node.phase1Relevance,
+          indRelevance: node.indRelevance,
+          evidenceRefs: node.evidenceRefs,
+          linkedPathwayNodeIds: node.linkedPathwayNodeIds ?? [],
+        }
+      : {
+          id: node.id,
+          nodeKind: node.nodeKind,
+          title: node.title,
+          summary: node.summary,
+          focusTerms: node.focusTerms ?? [],
+          paperSources: [],
+          extractionStatus: node.extractionStatus,
+          extractionError: node.extractionError ?? null,
+          pathwayGraph: null,
+          sanityReport: null,
+          queryHistory: [],
+          lastBuiltAt: node.lastBuiltAt ?? null,
+          linkedExperimentNodeIds: node.linkedExperimentNodeIds ?? [],
+        },
+  ),
+  edges: edges.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    parallelized: edge.parallelized,
+  })),
 });
 
 function App() {
@@ -148,6 +216,7 @@ function App() {
   } =
     useLocalStorageGraph();
   const [editorMode, setEditorMode] = useState<EditorMode>('closed');
+  const [createNodeKind, setCreateNodeKind] = useState<NodeKind>('experiment');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [interactionMode, setInteractionMode] = useState<InteractionMode>(null);
   const [schedule, setSchedule] = useState<ScheduleResult | null>(null);
@@ -179,6 +248,11 @@ function App() {
   const [deepRiskAnalysis, setDeepRiskAnalysis] = useState<DeepRiskAnalysis | null>(null);
   const [deepRiskError, setDeepRiskError] = useState<string | null>(null);
   const [isDeepRiskLoading, setIsDeepRiskLoading] = useState(false);
+  const [isPathwayExplorerOpen, setIsPathwayExplorerOpen] = useState(false);
+  const [isPathwayBuildLoading, setIsPathwayBuildLoading] = useState(false);
+  const [pathwayBuildError, setPathwayBuildError] = useState<string | null>(null);
+  const [isPathwayQueryLoading, setIsPathwayQueryLoading] = useState(false);
+  const [pathwayQueryError, setPathwayQueryError] = useState<string | null>(null);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [suppressedCanvasClick, setSuppressedCanvasClick] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -199,13 +273,18 @@ function App() {
   const previousRiskAssessmentsRef = useRef<NodeRiskAssessment[]>([]);
 
   const selectedNode = getNodeById(nodes, selectedNodeId);
+  const selectedExperimentNode =
+    selectedNode && isExperimentNode(selectedNode) ? selectedNode : null;
+  const selectedPathwayNode =
+    selectedNode && isPathwayNode(selectedNode) ? selectedNode : null;
+  const experimentNodes = getExperimentNodes(nodes);
   const totalCost = formatMetric(getTotalCost(nodes, edges));
-  const showParallelizationMultiplier = selectedNode
-    ? hasIncomingParallelizedEdge(edges, selectedNode.id)
+  const showParallelizationMultiplier = selectedExperimentNode
+    ? hasIncomingParallelizedEdge(edges, selectedExperimentNode.id)
     : false;
   const scheduleGraphInput = buildScheduleRequestGraph(personnel, nodes, edges);
   const analysisGraph = buildAnalysisGraph(program, personnel, nodes, edges);
-  const canAccelerate = nodes.length > 0 && budgetUsd !== null;
+  const canAccelerate = experimentNodes.length > 0 && budgetUsd !== null;
   const schedulingSignature = JSON.stringify(scheduleGraphInput);
   const analysisSignature = JSON.stringify(analysisGraph);
   const plannedCostDisplay = `${`$${totalCost}`} / ${
@@ -219,7 +298,7 @@ function App() {
   );
   const interactiveNodeIds =
     interactionMode?.type === 'connect'
-      ? nodes
+      ? experimentNodes
           .filter((node) => node.id !== interactionMode.nodeId)
           .map((node) => node.id)
       : interactionMode?.type === 'parallelize'
@@ -246,7 +325,8 @@ function App() {
       ]];
     }),
   ) as Record<string, { level: 'warning' | 'critical'; label: string }>;
-  const selectedNodeRiskAssessment = selectedNodeId ? riskByNodeId[selectedNodeId] ?? null : null;
+  const selectedNodeRiskAssessment =
+    selectedExperimentNode && selectedNodeId ? riskByNodeId[selectedNodeId] ?? null : null;
 
   useEffect(() => {
     zoomRef.current = zoom;
@@ -438,9 +518,10 @@ function App() {
     return () => viewportElement.removeEventListener('wheel', handleWheel);
   }, []);
 
-  const openCreateEditor = () => {
+  const openCreateEditor = (nodeKind: NodeKind) => {
     setInteractionMode(null);
     setSelectedNodeId(null);
+    setCreateNodeKind(nodeKind);
     setEditorMode('create');
   };
 
@@ -473,6 +554,10 @@ function App() {
     }
 
     if (interactionMode?.type === 'connect') {
+      const targetNode = getNodeById(nodes, id);
+      if (!targetNode || !isExperimentNode(targetNode)) {
+        return;
+      }
       if (interactionMode.nodeId === id) {
         return;
       }
@@ -496,6 +581,10 @@ function App() {
     }
 
     if (interactionMode?.type === 'parallelize') {
+      const targetNode = getNodeById(nodes, interactionMode.nodeId);
+      if (!targetNode || !isExperimentNode(targetNode)) {
+        return;
+      }
       const matchingEdge = edges.find(
         (edge) => edge.source === id && edge.target === interactionMode.nodeId,
       );
@@ -525,14 +614,29 @@ function App() {
     setEditorMode('edit');
   };
 
-  const handleSaveNode = (values: Omit<FlowNode, 'id' | 'x' | 'y'>) => {
+  const handleSaveNode = (
+    values:
+      | Omit<ExperimentNode, 'id' | 'x' | 'y'>
+      | Omit<BiologicalPathwayNode, 'id' | 'x' | 'y'>,
+  ) => {
     if (editorMode === 'create') {
-      const createdNode: FlowNode = {
-        id: createId('node'),
-        x: INITIAL_NODE_POSITION.x + nodes.length * 28,
-        y: INITIAL_NODE_POSITION.y + nodes.length * 28,
-        ...values,
-      };
+      const createdNode: FlowNode =
+        values.nodeKind === 'biological_pathway'
+          ? {
+              ...createEmptyPathwayNode(
+                createId('node'),
+                values.title,
+                INITIAL_NODE_POSITION.x + nodes.length * 28,
+                INITIAL_NODE_POSITION.y + nodes.length * 28,
+              ),
+              ...values,
+            }
+          : {
+              id: createId('node'),
+              x: INITIAL_NODE_POSITION.x + nodes.length * 28,
+              y: INITIAL_NODE_POSITION.y + nodes.length * 28,
+              ...values,
+            };
 
       setNodes((current) => [...current, createdNode]);
       setSelectedNodeId(createdNode.id);
@@ -582,7 +686,11 @@ function App() {
     setNodes((current) =>
       current.map((node) => ({
         ...node,
-        operators: node.operators.filter((operator) => operator !== name),
+        ...(isExperimentNode(node)
+          ? {
+              operators: node.operators.filter((operator) => operator !== name),
+            }
+          : {}),
       })),
     );
   };
@@ -592,7 +700,25 @@ function App() {
       return;
     }
 
-    setNodes((current) => current.filter((node) => node.id !== selectedNodeId));
+    setNodes((current) =>
+      current
+        .filter((node) => node.id !== selectedNodeId)
+        .map((node) =>
+          isExperimentNode(node)
+            ? {
+                ...node,
+                linkedPathwayNodeIds: (node.linkedPathwayNodeIds ?? []).filter(
+                  (id) => id !== selectedNodeId,
+                ),
+              }
+            : {
+                ...node,
+                linkedExperimentNodeIds: (node.linkedExperimentNodeIds ?? []).filter(
+                  (id) => id !== selectedNodeId,
+                ),
+              },
+        ),
+    );
     setEdges((current) =>
       current.filter(
         (edge) => edge.source !== selectedNodeId && edge.target !== selectedNodeId,
@@ -601,6 +727,7 @@ function App() {
     setInteractionMode(null);
     setSelectedNodeId(null);
     setEditorMode('closed');
+    setIsPathwayExplorerOpen(false);
   };
 
   const runSchedule = async () => {
@@ -1009,7 +1136,7 @@ function App() {
     }
 
     const node = getNodeById(nodes, selectedNodeId);
-    if (!node || !isActiveNodeStatus(node.status)) {
+    if (!node || !isExperimentNode(node) || !isActiveNodeStatus(node.status)) {
       return;
     }
 
@@ -1056,6 +1183,171 @@ function App() {
         deepRiskAbortRef.current = null;
       }
       setIsDeepRiskLoading(false);
+    }
+  };
+
+  const savePathwayNodeAndGetId = (
+    values: Omit<BiologicalPathwayNode, 'id' | 'x' | 'y'>,
+  ) => {
+    if (editorMode === 'create') {
+      const createdNode: BiologicalPathwayNode = {
+        ...createEmptyPathwayNode(
+          createId('node'),
+          values.title,
+          INITIAL_NODE_POSITION.x + nodes.length * 28,
+          INITIAL_NODE_POSITION.y + nodes.length * 28,
+        ),
+        ...values,
+      };
+      setNodes((current) => [...current, createdNode]);
+      setSelectedNodeId(createdNode.id);
+      setEditorMode('edit');
+      return createdNode.id;
+    }
+
+    if (editorMode === 'edit' && selectedNodeId) {
+      setNodes((current) =>
+        current.map((node) =>
+          node.id === selectedNodeId
+            ? {
+                ...node,
+                ...values,
+              }
+            : node,
+        ),
+      );
+      return selectedNodeId;
+    }
+
+    return null;
+  };
+
+  const handleBuildPathway = async (
+    values: Omit<BiologicalPathwayNode, 'id' | 'x' | 'y'>,
+  ) => {
+    const nodeId = savePathwayNodeAndGetId({
+      ...values,
+      extractionStatus: 'building',
+      extractionError: null,
+    });
+    if (!nodeId) {
+      return;
+    }
+
+    setPathwayBuildError(null);
+    setIsPathwayBuildLoading(true);
+
+    try {
+      const response = await fetch(`${SCHEDULER_API_BASE}/pathway/build`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: values.title,
+          focusTerms: values.focusTerms ?? [],
+          paperSources: values.paperSources,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { detail?: string }
+          | null;
+        throw new Error(payload?.detail ?? 'Pathway build failed.');
+      }
+
+      const payload = (await response.json()) as PathwayBuildResponse;
+      setNodes((current) =>
+        current.map((node) =>
+          node.id === nodeId && isPathwayNode(node)
+            ? {
+                ...node,
+                ...values,
+                extractionStatus: payload.status === 'ready' ? 'ready' : 'error',
+                extractionError: payload.errors.join('\n') || null,
+                pathwayGraph: payload.pathwayGraph,
+                sanityReport: payload.sanityReport,
+                summary: values.summary?.trim() || payload.buildSummary,
+                lastBuiltAt: new Date().toISOString(),
+                lastBuildResponse: payload,
+              }
+            : node,
+        ),
+      );
+      setIsPathwayExplorerOpen(payload.status === 'ready');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Pathway build failed.';
+      setPathwayBuildError(message);
+      setNodes((current) =>
+        current.map((node) =>
+          node.id === nodeId && isPathwayNode(node)
+            ? {
+                ...node,
+                ...values,
+                extractionStatus: 'error',
+                extractionError: message,
+              }
+            : node,
+        ),
+      );
+    } finally {
+      setIsPathwayBuildLoading(false);
+    }
+  };
+
+  const requestPathwayQuery = async (query: string) => {
+    if (!selectedPathwayNode?.pathwayGraph) {
+      return;
+    }
+
+    setIsPathwayQueryLoading(true);
+    setPathwayQueryError(null);
+
+    try {
+      const response = await fetch(`${SCHEDULER_API_BASE}/pathway/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          pathwayGraph: selectedPathwayNode.pathwayGraph,
+          query,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { detail?: string }
+          | null;
+        throw new Error(payload?.detail ?? 'Pathway query failed.');
+      }
+
+      const payload = (await response.json()) as PathwayQueryResponse;
+      setNodes((current) =>
+        current.map((node) =>
+          node.id === selectedPathwayNode.id && isPathwayNode(node)
+            ? {
+                ...node,
+                latestQueryResponse: payload,
+                queryHistory: [
+                  {
+                    id: createId('pathway_query'),
+                    query,
+                    askedAt: new Date().toISOString(),
+                    answerSummary: payload.answer_summary,
+                    status: payload.query_status,
+                  },
+                  ...(node.queryHistory ?? []),
+                ].slice(0, 12),
+              }
+            : node,
+        ),
+      );
+    } catch (error) {
+      setPathwayQueryError(error instanceof Error ? error.message : 'Pathway query failed.');
+    } finally {
+      setIsPathwayQueryLoading(false);
     }
   };
 
@@ -1200,7 +1492,7 @@ function App() {
         plannedCostDisplay={plannedCostDisplay}
         plannedDuration={plannedDuration}
         isAssigning={isAssigning}
-        canAssign={nodes.length > 0}
+        canAssign={experimentNodes.length > 0}
         isAssignedView={isAssignedView}
         isAccelerating={isAccelerating || Boolean(accelerateProposal || accelerateError || accelerateStopReason)}
         canAccelerate={canAccelerate}
@@ -1236,7 +1528,8 @@ function App() {
         }}
         onExport={handleExport}
         onImport={handleImport}
-        onAddNode={openCreateEditor}
+        onAddExperimentNode={() => openCreateEditor('experiment')}
+        onAddPathwayNode={() => openCreateEditor('biological_pathway')}
       />
       {scheduleError || schedule?.diagnostics.length ? (
         <section className="schedule-banner" aria-label="Scheduling status">
@@ -1275,40 +1568,56 @@ function App() {
           onNodeClick={handleNodeClick}
           onNodePointerDown={handleNodePointerDown}
         />
-        <NodeEditor
-          mode={editorMode}
-          node={selectedNode}
-          personnel={personnel}
-          riskAssessment={selectedNodeRiskAssessment}
-          isRiskLoading={isRiskLoading}
-          riskError={riskError}
-          isDeepReasoningLoading={isDeepRiskLoading}
-          showParallelizationMultiplier={showParallelizationMultiplier}
-          isConnectMode={interactionMode?.type === 'connect'}
-          isParallelizeMode={interactionMode?.type === 'parallelize'}
-          onClose={closeEditor}
-          onSave={handleSaveNode}
-          onDelete={handleDeleteNode}
-          onStartConnect={() => {
-            if (selectedNodeId) {
-              setInteractionMode({ type: 'connect', nodeId: selectedNodeId });
-            }
-          }}
-          onStartParallelize={() => {
-            if (selectedNodeId) {
-              setInteractionMode({ type: 'parallelize', nodeId: selectedNodeId });
-            }
-          }}
-          onCancelConnect={() => setInteractionMode(null)}
-          onDeepReasoning={() => {
-            void requestDeepRiskReasoning();
-          }}
-        />
+        {(createNodeKind === 'experiment' && editorMode === 'create') || selectedExperimentNode ? (
+          <NodeEditor
+            mode={editorMode}
+            node={selectedExperimentNode}
+            personnel={personnel}
+            riskAssessment={selectedNodeRiskAssessment}
+            isRiskLoading={isRiskLoading}
+            riskError={riskError}
+            isDeepReasoningLoading={isDeepRiskLoading}
+            showParallelizationMultiplier={showParallelizationMultiplier}
+            isConnectMode={interactionMode?.type === 'connect'}
+            isParallelizeMode={interactionMode?.type === 'parallelize'}
+            onClose={closeEditor}
+            onSave={handleSaveNode}
+            onDelete={handleDeleteNode}
+            onStartConnect={() => {
+              if (selectedExperimentNode) {
+                setInteractionMode({ type: 'connect', nodeId: selectedExperimentNode.id });
+              }
+            }}
+            onStartParallelize={() => {
+              if (selectedExperimentNode) {
+                setInteractionMode({ type: 'parallelize', nodeId: selectedExperimentNode.id });
+              }
+            }}
+            onCancelConnect={() => setInteractionMode(null)}
+            onDeepReasoning={() => {
+              void requestDeepRiskReasoning();
+            }}
+          />
+        ) : null}
+        {(createNodeKind === 'biological_pathway' && editorMode === 'create') || selectedPathwayNode ? (
+          <PathwayNodeEditor
+            mode={editorMode}
+            node={selectedPathwayNode}
+            experimentNodes={getExperimentNodeOptions(nodes)}
+            isBuilding={isPathwayBuildLoading}
+            buildError={pathwayBuildError}
+            onClose={closeEditor}
+            onSave={handleSaveNode}
+            onDelete={handleDeleteNode}
+            onBuild={handleBuildPathway}
+            onOpenExplorer={() => setIsPathwayExplorerOpen(true)}
+          />
+        ) : null}
         <DeepRiskPanel
           analysis={deepRiskAnalysis}
           isLoading={isDeepRiskLoading}
           error={deepRiskError}
-          nodeTitle={selectedNode?.title ?? null}
+          nodeTitle={selectedExperimentNode?.title ?? null}
           onClose={() => {
             deepRiskAbortRef.current?.abort();
             deepRiskAbortRef.current = null;
@@ -1354,6 +1663,20 @@ function App() {
             void requestReview();
           }}
           onReferenceClick={handleChatReferenceClick}
+        />
+        <PathwayPanel
+          node={selectedPathwayNode}
+          isOpen={isPathwayExplorerOpen}
+          isQuerying={isPathwayQueryLoading}
+          queryError={pathwayQueryError}
+          queryResponse={selectedPathwayNode?.latestQueryResponse ?? null}
+          onClose={() => {
+            setIsPathwayExplorerOpen(false);
+            setPathwayQueryError(null);
+          }}
+          onQuery={(query) => {
+            void requestPathwayQuery(query);
+          }}
         />
         <AcceleratePanel
           proposal={accelerateProposal}

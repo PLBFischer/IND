@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type {
   EditorMode,
-  FlowNode,
+  ExperimentNode,
   NodeRiskAssessment,
   Personnel,
 } from '../types/graph';
@@ -17,7 +17,7 @@ import { isActiveNodeStatus } from '../utils/graph';
 
 type NodeEditorProps = {
   mode: EditorMode;
-  node: FlowNode | null;
+  node: ExperimentNode | null;
   personnel: Personnel[];
   riskAssessment: NodeRiskAssessment | null;
   isRiskLoading: boolean;
@@ -27,7 +27,7 @@ type NodeEditorProps = {
   isConnectMode: boolean;
   isParallelizeMode: boolean;
   onClose: () => void;
-  onSave: (values: Omit<FlowNode, 'id' | 'x' | 'y'>) => void;
+  onSave: (values: Omit<ExperimentNode, 'id' | 'x' | 'y'>) => void;
   onDelete: () => void;
   onStartConnect: () => void;
   onStartParallelize: () => void;
@@ -61,7 +61,7 @@ export function NodeEditor({
   onDeepReasoning,
 }: NodeEditorProps) {
   const [title, setTitle] = useState('');
-  const [type, setType] = useState<FlowNode['type']>('other');
+  const [type, setType] = useState<ExperimentNode['type']>('other');
   const [objective, setObjective] = useState('');
   const [procedureSummary, setProcedureSummary] = useState('');
   const [successCriteria, setSuccessCriteria] = useState('');
@@ -74,8 +74,8 @@ export function NodeEditor({
   const [parallelizationMultiplier, setParallelizationMultiplier] = useState<1 | 2 | 3 | 4>(1);
   const [operators, setOperators] = useState<string[]>([]);
   const [owner, setOwner] = useState('');
-  const [status, setStatus] = useState<FlowNode['status']>('planned');
-  const [blockerPriority, setBlockerPriority] = useState<FlowNode['blockerPriority']>('supporting');
+  const [status, setStatus] = useState<ExperimentNode['status']>('planned');
+  const [blockerPriority, setBlockerPriority] = useState<ExperimentNode['blockerPriority']>('supporting');
   const [phase1Relevance, setPhase1Relevance] = useState('');
   const [indRelevance, setIndRelevance] = useState('');
   const [evidenceRefsText, setEvidenceRefsText] = useState('');
@@ -212,6 +212,7 @@ export function NodeEditor({
           }
 
           onSave({
+            nodeKind: 'experiment',
             title: nextTitle,
             type,
             objective: objective.trim(),
@@ -258,7 +259,7 @@ export function NodeEditor({
               <span>Type</span>
               <select
                 value={type}
-                onChange={(event) => setType(event.target.value as FlowNode['type'])}
+                onChange={(event) => setType(event.target.value as ExperimentNode['type'])}
               >
                 {NODE_TYPE_OPTIONS.map((option) => (
                   <option key={option} value={option}>
@@ -272,7 +273,7 @@ export function NodeEditor({
               <span>Status</span>
               <select
                 value={status}
-                onChange={(event) => setStatus(event.target.value as FlowNode['status'])}
+                onChange={(event) => setStatus(event.target.value as ExperimentNode['status'])}
               >
                 {NODE_STATUS_OPTIONS.map((option) => (
                   <option key={option} value={option}>
@@ -389,7 +390,7 @@ export function NodeEditor({
               <select
                 value={blockerPriority}
                 onChange={(event) =>
-                  setBlockerPriority(event.target.value as FlowNode['blockerPriority'])
+                  setBlockerPriority(event.target.value as ExperimentNode['blockerPriority'])
                 }
               >
                 {BLOCKER_PRIORITY_OPTIONS.map((option) => (

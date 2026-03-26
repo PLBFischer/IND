@@ -8,6 +8,7 @@ import {
   getNodeCardSummary,
   getNodeStatusLabel,
   getNodeTypeLabel,
+  isExperimentNode,
   isActiveNodeStatus,
 } from '../utils/graph';
 import { formatMetric } from '../utils/metrics';
@@ -40,15 +41,18 @@ export function FlowNode({
   onSelect,
   onPointerDown,
 }: FlowNodeProps) {
-  const effectiveCost = getEffectiveNodeCost(node, edges);
-  const effectiveWorkHoursPerWeek = getEffectiveNodeWorkHoursPerWeek(node, edges);
-  const effectiveParallelizationMultiplier = getEffectiveParallelizationMultiplier(
-    node,
-    edges,
-  );
-  const isActive = isActiveNodeStatus(node.status);
+  const isExperiment = isExperimentNode(node);
+  const effectiveCost = isExperiment ? getEffectiveNodeCost(node, edges) : null;
+  const effectiveWorkHoursPerWeek = isExperiment
+    ? getEffectiveNodeWorkHoursPerWeek(node, edges)
+    : null;
+  const effectiveParallelizationMultiplier = isExperiment
+    ? getEffectiveParallelizationMultiplier(node, edges)
+    : 1;
+  const isActive = isExperiment ? isActiveNodeStatus(node.status) : false;
   const className = [
     'flow-node',
+    isExperiment ? '' : 'flow-node--pathway',
     selected ? 'flow-node--selected' : '',
     highlighted ? 'flow-node--highlighted' : '',
     connectable ? 'flow-node--connectable' : '',
@@ -95,16 +99,29 @@ export function FlowNode({
       </div>
       <div className="flow-node__body">
         <div className="flow-node__badges">
-          <span className="flow-node__badge">{getNodeTypeLabel(node.type)}</span>
-          <span className="flow-node__badge flow-node__badge--priority">
-            {getBlockerPriorityLabel(node.blockerPriority)}
-          </span>
-          <span className={`flow-node__badge flow-node__badge--status flow-node__badge--${node.status}`}>
-            {getNodeStatusLabel(node.status)}
-          </span>
+          {isExperiment ? (
+            <>
+              <span className="flow-node__badge">{getNodeTypeLabel(node.type)}</span>
+              <span className="flow-node__badge flow-node__badge--priority">
+                {getBlockerPriorityLabel(node.blockerPriority)}
+              </span>
+              <span
+                className={`flow-node__badge flow-node__badge--status flow-node__badge--${node.status}`}
+              >
+                {getNodeStatusLabel(node.status)}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="flow-node__badge flow-node__badge--pathway">Biological pathway</span>
+              <span className="flow-node__badge flow-node__badge--status">
+                {node.extractionStatus}
+              </span>
+            </>
+          )}
         </div>
         <p>{getNodeCardSummary(node)}</p>
-        {scheduleNode ? (
+        {isExperiment && scheduleNode ? (
           <div className="flow-node__operators">
             <span>Assignment</span>
             <strong>
@@ -114,11 +131,11 @@ export function FlowNode({
             </strong>
           </div>
         ) : null}
-        {isActive ? (
+        {isExperiment && isActive ? (
           <dl className="flow-node__metrics">
             <div>
               <dt>Cost</dt>
-              <dd>${formatMetric(effectiveCost)}</dd>
+              <dd>${formatMetric(effectiveCost ?? 0)}</dd>
             </div>
             <div>
               <dt>Duration</dt>
@@ -126,11 +143,26 @@ export function FlowNode({
             </div>
             <div>
               <dt>Workload</dt>
-              <dd>{formatMetric(effectiveWorkHoursPerWeek)} hrs/wk</dd>
+              <dd>{formatMetric(effectiveWorkHoursPerWeek ?? 0)} hrs/wk</dd>
             </div>
           </dl>
-        ) : (
+        ) : isExperiment ? (
           <div className="flow-node__status">{getNodeStatusLabel(node.status)}</div>
+        ) : (
+          <dl className="flow-node__metrics flow-node__metrics--pathway">
+            <div>
+              <dt>Sources</dt>
+              <dd>{node.paperSources.length}</dd>
+            </div>
+            <div>
+              <dt>Edges</dt>
+              <dd>{node.pathwayGraph?.default_relations.length ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Warnings</dt>
+              <dd>{node.sanityReport?.summary.high_priority_issue_count ?? 0}</dd>
+            </div>
+          </dl>
         )}
       </div>
     </button>

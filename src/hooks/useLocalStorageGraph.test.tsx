@@ -80,4 +80,37 @@ describe('useLocalStorageGraph', () => {
     });
     expect(screen.getByTestId('phase1')).toHaveTextContent('Updated Phase 1 design');
   });
+
+  it('normalizes and preserves biological pathway nodes', () => {
+    const normalized = normalizeGraphState({
+      nodes: [
+        {
+          id: 'pathway_1',
+          nodeKind: 'biological_pathway',
+          title: 'TNF signaling evidence',
+          focusTerms: ['TNF', 'NF-kB'],
+          paperSources: [
+            {
+              sourceId: 'source_1',
+              sourceType: 'raw_text',
+              sourceValue: 'Full text results here.',
+            },
+          ],
+          extractionStatus: 'ready',
+          x: 240,
+          y: 320,
+        },
+      ],
+      edges: [],
+      personnel: [],
+      budgetUsd: 5000,
+    });
+
+    expect(normalized).not.toBeNull();
+    expect(normalized?.nodes[0]).toMatchObject({
+      nodeKind: 'biological_pathway',
+      title: 'TNF signaling evidence',
+      extractionStatus: 'ready',
+    });
+  });
 });

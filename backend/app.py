@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import ssl
 from collections import deque
 from copy import deepcopy
 from decimal import Decimal
+from html import unescape
 from typing import Any, Literal
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode, urlparse
+from urllib.request import Request, urlopen
+from xml.etree import ElementTree
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +20,41 @@ from openai import APIError, AuthenticationError, OpenAI
 from ortools.sat.python import cp_model
 from pydantic import BaseModel, Field, model_validator
 from pydantic_core import ValidationError as PydanticValidationError
+
+try:
+    import certifi
+except ImportError:  # pragma: no cover
+    certifi = None
+
+from backend.pathway_models import (
+    AggregatedRelation,
+    AggregationPassResult,
+    EvidenceCard,
+    EvidenceItem,
+    ExtractionPassResult,
+    NormalizedEntity,
+    ParsedSourceSummary,
+    PathwayBuildRequest,
+    PathwayBuildResponse,
+    PathwayGraph,
+    PathwayNodePayload,
+    PathwayPaperSource,
+    PathwayQueryPlan,
+    PathwayQueryRequest,
+    PathwayQueryResponse,
+    PathwaySanityFinding,
+    PathwaySanityReport,
+    PathwaySanitySummary,
+    PaperChunk,
+    ResolvedEntityMatch,
+    UnresolvedIssue,
+)
+from backend.pathway_prompts import (
+    AGGREGATION_SYSTEM_PROMPT,
+    EXTRACTION_SYSTEM_PROMPT,
+    QUERY_SYSTEM_PROMPT,
+    SANITY_SYSTEM_PROMPT,
+)
 
 
 RiskLevel = Literal["Very Low", "Low", "Medium", "High", "Very High"]
@@ -77,6 +119,7 @@ class ProgramPayload(BaseModel):
 class NodePayload(BaseModel):
     id: str
     title: str
+    nodeKind: Literal["experiment"] = "experiment"
     type: NodeType = "other"
     objective: str = ""
     procedureSummary: str = ""
@@ -95,6 +138,7 @@ class NodePayload(BaseModel):
     phase1Relevance: str = ""
     indRelevance: str = ""
     evidenceRefs: list[str] = Field(default_factory=list)
+    linkedPathwayNodeIds: list[str] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -107,7 +151,11 @@ class NodePayload(BaseModel):
             normalized["procedureSummary"] = normalized["content"]
         if "status" not in normalized and isinstance(normalized.get("completed"), bool):
             normalized["status"] = "completed" if normalized["completed"] else "planned"
+        normalized.setdefault("nodeKind", "experiment")
         normalized["evidenceRefs"] = normalize_string_list(normalized.get("evidenceRefs"))
+        normalized["linkedPathwayNodeIds"] = normalize_string_list(
+            normalized.get("linkedPathwayNodeIds")
+        )
         if not isinstance(normalized.get("owner"), str) or not normalized.get("owner", "").strip():
             normalized["owner"] = None
         return normalized
@@ -128,8 +176,25 @@ class PersonnelPayload(BaseModel):
 class GraphPayload(BaseModel):
     program: ProgramPayload = Field(default_factory=ProgramPayload)
     personnel: list[PersonnelPayload] = Field(default_factory=list)
-    nodes: list[NodePayload] = Field(default_factory=list)
+    nodes: list[NodePayload | PathwayNodePayload] = Field(default_factory=list)
     edges: list[EdgePayload] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_node_kinds(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+
+        normalized = dict(value)
+        raw_nodes = normalized.get("nodes")
+        if isinstance(raw_nodes, list):
+            normalized["nodes"] = [
+                {**node, "nodeKind": node.get("nodeKind", "experiment")}
+                if isinstance(node, dict)
+                else node
+                for node in raw_nodes
+            ]
+        return normalized
 
 
 class ScheduledNode(BaseModel):
@@ -424,6 +489,34 @@ def get_program_relevance_score(node: NodePayload) -> int:
     return score
 
 
+def is_experiment_node(node: NodePayload | PathwayNodePayload) -> bool:
+    return isinstance(node, NodePayload)
+
+
+def is_pathway_node(node: NodePayload | PathwayNodePayload) -> bool:
+    return isinstance(node, PathwayNodePayload)
+
+
+def get_experiment_nodes(graph: GraphPayload) -> list[NodePayload]:
+    return [node for node in graph.nodes if is_experiment_node(node)]
+
+
+def get_pathway_nodes(graph: GraphPayload) -> list[PathwayNodePayload]:
+    return [node for node in graph.nodes if is_pathway_node(node)]
+
+
+def get_experiment_edges(
+    nodes: list[NodePayload],
+    edges: list[EdgePayload],
+) -> list[EdgePayload]:
+    node_ids = {node.id for node in nodes}
+    return [
+        edge
+        for edge in edges
+        if edge.source in node_ids and edge.target in node_ids
+    ]
+
+
 def validate_acyclic(nodes: list[NodePayload], edges: list[EdgePayload]) -> None:
     node_ids = {node.id for node in nodes}
     indegree = {node.id: 0 for node in nodes}
@@ -477,25 +570,30 @@ def get_planned_cost(nodes: list[NodePayload], edges: list[EdgePayload]) -> floa
 
 
 def solve_schedule_response(payload: GraphPayload) -> ScheduleResponse:
-    if not payload.nodes:
+    experiment_nodes = get_experiment_nodes(payload)
+    experiment_edges = get_experiment_edges(experiment_nodes, payload.edges)
+
+    if not experiment_nodes:
         return ScheduleResponse(makespan=0, nodes=[], diagnostics=[])
 
-    validate_acyclic(payload.nodes, payload.edges)
+    validate_acyclic(experiment_nodes, experiment_edges)
 
     scale = 10 ** max(
         [
-            *(decimal_places(node.duration) for node in payload.nodes),
-            *(decimal_places(node.workHoursPerWeek) for node in payload.nodes),
+            *(decimal_places(node.duration) for node in experiment_nodes),
+            *(decimal_places(node.workHoursPerWeek) for node in experiment_nodes),
             *(decimal_places(person.hoursPerWeek) for person in payload.personnel),
             0,
         ]
     )
     scale = max(scale, 1)
 
-    active_nodes = [node for node in payload.nodes if is_node_active(node)]
+    active_nodes = [node for node in experiment_nodes if is_node_active(node)]
     active_node_ids = {node.id for node in active_nodes}
     parallelized_targets = {
-        edge.target for edge in payload.edges if edge.parallelized and edge.target in active_node_ids
+        edge.target
+        for edge in experiment_edges
+        if edge.parallelized and edge.target in active_node_ids
     }
     personnel_capacity = {
         person.name: scale_value(person.hoursPerWeek, scale)
@@ -517,7 +615,7 @@ def solve_schedule_response(payload: GraphPayload) -> ScheduleResponse:
                     start=0,
                     finish=0,
                 )
-                for node in payload.nodes
+                for node in experiment_nodes
             ],
         )
 
@@ -582,7 +680,7 @@ def solve_schedule_response(payload: GraphPayload) -> ScheduleResponse:
                 personnel_capacity[operator],
             )
 
-    for edge in payload.edges:
+    for edge in experiment_edges:
         if edge.target not in active_node_ids:
             continue
 
@@ -614,7 +712,7 @@ def solve_schedule_response(payload: GraphPayload) -> ScheduleResponse:
 
     scheduled_nodes: list[ScheduledNode] = []
 
-    for node in payload.nodes:
+    for node in experiment_nodes:
         if not is_node_active(node):
             scheduled_nodes.append(
                 ScheduledNode(
@@ -689,13 +787,15 @@ def enumerate_candidates(
     baseline_cost: float,
     baseline_duration: float,
 ) -> list[dict[str, object]]:
-    node_map = {node.id: node for node in payload.nodes}
+    experiment_nodes = get_experiment_nodes(payload)
+    experiment_edges = get_experiment_edges(experiment_nodes, payload.edges)
+    node_map = {node.id: node for node in experiment_nodes}
     incoming_edges_by_target: dict[str, list[EdgePayload]] = {}
-    for edge in payload.edges:
+    for edge in experiment_edges:
         incoming_edges_by_target.setdefault(edge.target, []).append(edge)
     candidates: list[dict[str, object]] = []
 
-    for edge in payload.edges:
+    for edge in experiment_edges:
         if edge.parallelized:
             continue
 
@@ -706,7 +806,7 @@ def enumerate_candidates(
         if not is_node_active(target_node):
             continue
 
-        current_multiplier = get_effective_multiplier(target_node, payload.edges)
+        current_multiplier = get_effective_multiplier(target_node, experiment_edges)
         minimum_multiplier = current_multiplier if current_multiplier > 1 else 1
 
         incoming_dependencies = [
@@ -735,7 +835,15 @@ def enumerate_candidates(
             except HTTPException:
                 continue
 
-            resulting_cost = get_planned_cost(candidate_graph.nodes, candidate_graph.edges)
+            candidate_experiment_nodes = get_experiment_nodes(candidate_graph)
+            candidate_experiment_edges = get_experiment_edges(
+                candidate_experiment_nodes,
+                candidate_graph.edges,
+            )
+            resulting_cost = get_planned_cost(
+                candidate_experiment_nodes,
+                candidate_experiment_edges,
+            )
             resulting_duration = schedule.makespan
             delta_cost = resulting_cost - baseline_cost
             delta_duration = baseline_duration - resulting_duration
@@ -811,11 +919,14 @@ def resolve_schedule_context(
 
 def build_chat_graph_context(payload: ChatRequest) -> dict[str, object]:
     resolved_schedule = resolve_schedule_context(payload.graph, payload.schedule)
-    node_map = {node.id: node for node in payload.graph.nodes}
-    children_by_node: dict[str, list[str]] = {node.id: [] for node in payload.graph.nodes}
-    parents_by_node: dict[str, list[str]] = {node.id: [] for node in payload.graph.nodes}
+    experiment_nodes = get_experiment_nodes(payload.graph)
+    pathway_nodes = get_pathway_nodes(payload.graph)
+    experiment_edges = get_experiment_edges(experiment_nodes, payload.graph.edges)
+    node_map = {node.id: node for node in experiment_nodes}
+    children_by_node: dict[str, list[str]] = {node.id: [] for node in experiment_nodes}
+    parents_by_node: dict[str, list[str]] = {node.id: [] for node in experiment_nodes}
 
-    for edge in payload.graph.edges:
+    for edge in experiment_edges:
         if edge.source in node_map and edge.target in node_map:
             children_by_node[edge.source].append(edge.target)
             parents_by_node[edge.target].append(edge.source)
@@ -875,7 +986,7 @@ def build_chat_graph_context(payload: ChatRequest) -> dict[str, object]:
                     else None
                 ),
             }
-            for node in payload.graph.nodes
+            for node in experiment_nodes
         ],
         "edges": [
             {
@@ -884,9 +995,33 @@ def build_chat_graph_context(payload: ChatRequest) -> dict[str, object]:
                 "target": edge.target,
                 "parallelized": edge.parallelized,
             }
-            for edge in payload.graph.edges
+            for edge in experiment_edges
         ],
-        "planned_cost_usd": get_planned_cost(payload.graph.nodes, payload.graph.edges),
+        "pathway_nodes": [
+            {
+                "id": node.id,
+                "title": node.title,
+                "summary": node.summary,
+                "focus_terms": node.focusTerms,
+                "extraction_status": node.extractionStatus,
+                "linked_experiment_node_ids": node.linkedExperimentNodeIds,
+                "default_relation_count": len(node.pathwayGraph.default_relations)
+                if node.pathwayGraph
+                else 0,
+                "nondefault_relation_count": len(node.pathwayGraph.nondefault_relations)
+                if node.pathwayGraph
+                else 0,
+                "high_priority_issue_count": node.sanityReport.summary.high_priority_issue_count
+                if node.sanityReport
+                else 0,
+                "top_unresolved_issues": [
+                    issue.description
+                    for issue in (node.pathwayGraph.unresolved_issues if node.pathwayGraph else [])[:3]
+                ],
+            }
+            for node in pathway_nodes
+        ],
+        "planned_cost_usd": get_planned_cost(experiment_nodes, experiment_edges),
         "planned_duration_weeks": resolved_schedule.makespan if resolved_schedule else None,
     }
 
@@ -896,12 +1031,14 @@ def build_risk_graph_context(graph: GraphPayload) -> tuple[dict[str, object], Sc
     context = build_chat_graph_context(ChatRequest(messages=[], graph=graph, schedule=schedule))
     scheduled_by_node = {node.nodeId: node for node in schedule.nodes}
 
-    node_depths: dict[str, int] = {node.id: 0 for node in graph.nodes}
-    outgoing: dict[str, list[str]] = {node.id: [] for node in graph.nodes}
-    indegree: dict[str, int] = {node.id: 0 for node in graph.nodes}
-    active_node_ids = {node.id for node in graph.nodes if is_node_active(node)}
+    experiment_nodes = get_experiment_nodes(graph)
+    experiment_edges = get_experiment_edges(experiment_nodes, graph.edges)
+    node_depths: dict[str, int] = {node.id: 0 for node in experiment_nodes}
+    outgoing: dict[str, list[str]] = {node.id: [] for node in experiment_nodes}
+    indegree: dict[str, int] = {node.id: 0 for node in experiment_nodes}
+    active_node_ids = {node.id for node in experiment_nodes if is_node_active(node)}
 
-    for edge in graph.edges:
+    for edge in experiment_edges:
         if edge.source in outgoing and edge.target in outgoing:
             outgoing[edge.source].append(edge.target)
             indegree[edge.target] += 1
@@ -959,7 +1096,7 @@ def build_risk_graph_context(graph: GraphPayload) -> tuple[dict[str, object], Sc
             "downstream_dependency_count": count_downstream(node.id),
             "critical_path_terminal": node.id in critical_path_node_ids,
         }
-        for node in graph.nodes
+        for node in experiment_nodes
     ]
     return context, schedule
 
@@ -1082,7 +1219,7 @@ def score_risks_with_llm(payload: RiskScanRequest) -> RiskScanResponse:
             detail="Risk scoring requires OPENAI_API_KEY to be set on the backend.",
         )
 
-    active_nodes = [node for node in payload.graph.nodes if is_node_active(node)]
+    active_nodes = [node for node in get_experiment_nodes(payload.graph) if is_node_active(node)]
     if not active_nodes:
         return RiskScanResponse(assessments=[])
 
@@ -1283,7 +1420,7 @@ def deep_risk_analysis_with_llm(payload: DeepRiskRequest) -> DeepRiskResponse:
             detail="Deep risk reasoning requires OPENAI_API_KEY to be set on the backend.",
         )
 
-    node_map = {node.id: node for node in payload.graph.nodes}
+    node_map = {node.id: node for node in get_experiment_nodes(payload.graph)}
     focus_node = node_map.get(payload.nodeId)
     if not focus_node:
         raise HTTPException(status_code=404, detail="The requested node was not found.")
@@ -1537,7 +1674,7 @@ def answer_chat_with_llm(payload: ChatRequest) -> ChatResponse:
         )
 
     client = OpenAI(api_key=api_key)
-    node_ids = {node.id for node in payload.graph.nodes}
+    node_ids = {node.id for node in get_experiment_nodes(payload.graph)}
 
     try:
         response = client.responses.create(
@@ -1643,7 +1780,7 @@ def review_graph_with_llm(payload: ReviewRequest) -> ReviewResponse:
         )
 
     client = OpenAI(api_key=api_key)
-    node_ids = {node.id for node in payload.graph.nodes}
+    node_ids = {node.id for node in get_experiment_nodes(payload.graph)}
 
     try:
         response = client.responses.create(
@@ -1775,7 +1912,7 @@ def answer_evidence_query_with_llm(payload: EvidenceQueryRequest) -> EvidenceQue
         )
 
     client = OpenAI(api_key=api_key)
-    node_ids = {node.id for node in payload.graph.nodes}
+    node_ids = {node.id for node in get_experiment_nodes(payload.graph)}
 
     try:
         response = client.responses.create(
@@ -1880,6 +2017,1330 @@ def answer_evidence_query_with_llm(payload: EvidenceQueryRequest) -> EvidenceQue
     )
 
 
+RESULTS_SECTION_TOKENS = ("results", "figure", "table")
+VAGUE_LANGUAGE_PATTERNS = [
+    "has been shown to",
+    "is known to",
+    "has been implicated in",
+    "may regulate",
+    "suggests that",
+    "previous studies reported",
+    "associated with",
+]
+GREEK_REPLACEMENTS = {
+    "α": "alpha",
+    "β": "beta",
+    "γ": "gamma",
+    "δ": "delta",
+    "κ": "kappa",
+    "λ": "lambda",
+}
+
+
+def normalize_surface_form(value: str) -> str:
+    normalized = value.strip().lower()
+    for greek, replacement in GREEK_REPLACEMENTS.items():
+        normalized = normalized.replace(greek, replacement)
+    normalized = normalized.replace("/", " ").replace("-", " ").replace(":", " ")
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = normalized.strip(" .,;()[]{}")
+    return normalized
+
+
+def is_results_bearing_section(section: str) -> bool:
+    lowered = section.strip().lower()
+    return any(token in lowered for token in RESULTS_SECTION_TOKENS)
+
+
+def contains_vague_language(text: str) -> bool:
+    lowered = text.lower()
+    return any(pattern in lowered for pattern in VAGUE_LANGUAGE_PATTERNS)
+
+
+def strip_html_to_text(value: str) -> str:
+    without_scripts = re.sub(r"<script.*?</script>", " ", value, flags=re.IGNORECASE | re.DOTALL)
+    without_styles = re.sub(r"<style.*?</style>", " ", without_scripts, flags=re.IGNORECASE | re.DOTALL)
+    stripped = re.sub(r"<[^>]+>", " ", without_styles)
+    return re.sub(r"\s+", " ", unescape(stripped)).strip()
+
+
+def extract_pmcid_from_value(value: str) -> str | None:
+    match = re.search(r"(PMC\d+)", value, flags=re.IGNORECASE)
+    return match.group(1).upper() if match else None
+
+
+def extract_pubmed_id_from_value(value: str) -> str | None:
+    parsed = urlparse(value)
+    if "pubmed.ncbi.nlm.nih.gov" in parsed.netloc.lower():
+        match = re.search(r"/(\d+)/?", parsed.path)
+        if match:
+            return match.group(1)
+    match = re.search(r"\bPMID[:\s]*(\d+)\b", value, flags=re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return None
+
+
+def build_ncbi_request_headers(extra_headers: dict[str, str] | None = None) -> dict[str, str]:
+    headers = {
+        "User-Agent": "pathway-demo/1.0 (+https://openai.com; contact via app operator)",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+    return headers
+
+
+def build_ncbi_url(base_url: str, params: dict[str, str]) -> str:
+    request_params = dict(params)
+    tool_name = os.getenv("NCBI_TOOL_NAME", "pathway_demo")
+    request_params.setdefault("tool", tool_name)
+
+    contact_email = os.getenv("NCBI_CONTACT_EMAIL", "").strip()
+    if contact_email:
+        request_params.setdefault("email", contact_email)
+
+    return f"{base_url}?{urlencode(request_params)}"
+
+
+def fetch_url_bytes(url: str, *, headers: dict[str, str] | None = None) -> bytes:
+    request = Request(url, headers=build_ncbi_request_headers(headers))
+
+    ssl_context = None
+    if certifi is not None:
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+    else:
+        ssl_context = ssl.create_default_context()
+
+    if os.getenv("PATHWAY_FETCH_ALLOW_INSECURE_SSL", "").lower() in {"1", "true", "yes"}:
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
+    with urlopen(request, timeout=20, context=ssl_context) as response:
+        return response.read()
+
+
+def fetch_url_text(url: str, *, headers: dict[str, str] | None = None) -> str:
+    return fetch_url_bytes(url, headers=headers).decode("utf-8", errors="ignore")
+
+
+def fetch_url_json(url: str, *, headers: dict[str, str] | None = None) -> Any:
+    return json.loads(fetch_url_text(url, headers=headers))
+
+
+def extract_pmcid_from_pubmed_html(html: str) -> str | None:
+    patterns = [
+        r'citation_pmcid"\s+content="(PMC\d+)"',
+        r"/articles/(PMC\d+)/",
+        r"\b(PMC\d+)\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, html, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).upper()
+    return None
+
+
+def extract_text_from_pmc_xml(xml_text: str) -> str:
+    try:
+        root = ElementTree.fromstring(xml_text)
+    except ElementTree.ParseError:
+        return ""
+
+    text_parts: list[str] = []
+    for tag_name in ("article-title", "abstract", "body"):
+        for node in root.findall(f".//{tag_name}"):
+            content = " ".join(segment.strip() for segment in node.itertext() if segment.strip())
+            if content:
+                text_parts.append(content)
+    return re.sub(r"\s+", " ", " ".join(text_parts)).strip()
+
+
+def extract_text_from_bioc_payload(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+
+    documents = payload.get("documents")
+    if not isinstance(documents, list):
+        return ""
+
+    text_parts: list[str] = []
+    for document in documents:
+        if not isinstance(document, dict):
+            continue
+        passages = document.get("passages")
+        if not isinstance(passages, list):
+            continue
+        for passage in passages:
+            if not isinstance(passage, dict):
+                continue
+            text = passage.get("text")
+            if isinstance(text, str) and text.strip():
+                text_parts.append(text.strip())
+
+    return re.sub(r"\s+", " ", " ".join(text_parts)).strip()
+
+
+def resolve_pubmed_id_to_pmcid(pubmed_id: str) -> str | None:
+    idconv_url = build_ncbi_url(
+        "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/",
+        {"ids": pubmed_id, "format": "json"},
+    )
+    payload = fetch_url_json(idconv_url, headers={"Accept": "application/json"})
+    if not isinstance(payload, dict):
+        return None
+
+    records = payload.get("records")
+    if not isinstance(records, list):
+        return None
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        pmcid = record.get("pmcid")
+        if isinstance(pmcid, str) and pmcid.strip():
+            return pmcid.strip().upper()
+    return None
+
+
+def fetch_pmc_full_text_via_efetch(pmcid: str) -> str:
+    numeric_id = pmcid.upper().removeprefix("PMC")
+    efetch_url = build_ncbi_url(
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+        {"db": "pmc", "id": numeric_id, "retmode": "xml"},
+    )
+    xml_text = fetch_url_text(efetch_url, headers={"Accept": "application/xml,text/xml;q=0.9,*/*;q=0.1"})
+    return extract_text_from_pmc_xml(xml_text)
+
+
+def fetch_pmc_full_text_via_bioc(pmcid: str) -> str:
+    bioc_url = (
+        "https://www.ncbi.nlm.nih.gov/research/bionlp/RESTful/pmcoa.cgi/"
+        f"BioC_json/{pmcid.upper()}/unicode"
+    )
+    payload = fetch_url_json(bioc_url, headers={"Accept": "application/json"})
+    return extract_text_from_bioc_payload(payload)
+
+
+def fetch_pmc_full_text(pmcid: str) -> tuple[str | None, str | None]:
+    fetch_attempts = (
+        ("NCBI E-utilities efetch XML", fetch_pmc_full_text_via_efetch),
+        ("PMC BioC API", fetch_pmc_full_text_via_bioc),
+        ("PMC article HTML", lambda value: strip_html_to_text(fetch_url_text(f"https://pmc.ncbi.nlm.nih.gov/articles/{value}/"))),
+    )
+
+    failure_messages: list[str] = []
+    for label, fetcher in fetch_attempts:
+        try:
+            text = fetcher(pmcid)
+        except ssl.SSLError as error:
+            return (
+                None,
+                (
+                    f"Failed to fetch PMC full text for {pmcid} because TLS certificate verification failed "
+                    f"while using {label}: {error}"
+                ),
+            )
+        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, ElementTree.ParseError) as error:
+            failure_messages.append(f"{label}: {error}")
+            continue
+
+        if len(text) >= 1200:
+            return text, None
+        if text:
+            failure_messages.append(f"{label}: content too short")
+
+    return None, f"Failed to fetch PMC full text for {pmcid}: {'; '.join(failure_messages)}"
+
+
+def resolve_pubmed_url_to_pmcid(source: PathwayPaperSource) -> tuple[str | None, list[str]]:
+    warnings: list[str] = []
+    pubmed_id = source.pubmedId or extract_pubmed_id_from_value(source.sourceValue)
+    if pubmed_id:
+        try:
+            pmcid = resolve_pubmed_id_to_pmcid(pubmed_id)
+        except ssl.SSLError as error:
+            warnings.append(
+                f"Failed to resolve PMCID from PubMed ID {pubmed_id} because TLS verification failed: {error}"
+            )
+            return None, warnings
+        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
+            warnings.append(f"Failed to resolve PMCID from PubMed ID {pubmed_id}: {error}")
+        else:
+            if pmcid:
+                return pmcid, warnings
+
+    try:
+        html = fetch_url_text(source.sourceValue)
+    except ssl.SSLError as error:
+        warnings.append(
+            f"Failed to fetch PubMed page for PMC resolution because TLS verification failed: {error}"
+        )
+        return None, warnings
+    except (HTTPError, URLError, TimeoutError) as error:
+        warnings.append(f"Failed to fetch PubMed page for PMC resolution: {error}")
+        return None, warnings
+
+    pmcid = extract_pmcid_from_pubmed_html(html)
+    if not pmcid:
+        warnings.append(
+            "PubMed page did not expose a usable PMC full-text link, so the source remains abstract-only."
+        )
+    return pmcid, warnings
+
+
+def resolve_source_text(
+    source: PathwayPaperSource,
+) -> tuple[str | None, ParsedSourceSummary, list[str], bool]:
+    warnings: list[str] = []
+    label = source.label or source.title or source.sourceId
+    summary = ParsedSourceSummary(
+        sourceId=source.sourceId,
+        label=label,
+        fetchStatus="failed",
+        sectionCount=0,
+        chunkCount=0,
+        title=source.title,
+        pubmedId=source.pubmedId,
+        pmcid=source.pmcid,
+        warnings=[],
+    )
+
+    if source.sourceType == "raw_text":
+        text = source.sourceValue.strip()
+        if not text:
+            summary.warnings.append("Raw text source was empty.")
+            return None, summary, ["Raw text source was empty."], False
+        summary.fetchStatus = "fetched"
+        return text, summary, warnings, True
+
+    if source.sourceType == "pubmed_url":
+        pmcid, pubmed_warnings = resolve_pubmed_url_to_pmcid(source)
+        summary.warnings.extend(pubmed_warnings)
+        warnings.extend(pubmed_warnings)
+        if not pmcid:
+            warning = (
+                "PubMed URL source did not resolve to a usable PMC full-text article. "
+                "If only the abstract is available, provide raw full text instead."
+            )
+            summary.warnings.append(warning)
+            return None, summary, [*warnings, warning], False
+        summary.pmcid = pmcid
+        source = PathwayPaperSource(**{**source.model_dump(), "pmcid": pmcid, "sourceType": "pmcid"})
+
+    pmcid = source.pmcid or extract_pmcid_from_value(source.sourceValue)
+    if not pmcid:
+        warning = "PMC source could not be resolved to a PMCID."
+        summary.warnings.append(warning)
+        return None, summary, [warning], False
+
+    summary.pmcid = pmcid
+    text, warning = fetch_pmc_full_text(pmcid)
+    if warning:
+        if "TLS certificate verification failed" in warning:
+            warning = (
+                f"{warning}. This usually means the local Python trust store does not trust "
+                "the certificate chain presented for the site."
+            )
+        summary.warnings.append(warning)
+        return None, summary, [warning], False
+
+    assert text is not None
+    if len(text) < 1200:
+        warning = f"PMC full text for {pmcid} was too short to support pathway extraction."
+        summary.warnings.append(warning)
+        return None, summary, [warning], False
+
+    summary.fetchStatus = "fetched"
+    if not summary.title:
+        summary.title = label
+    return text, summary, warnings, True
+
+
+def classify_heading(value: str) -> str | None:
+    compact = normalize_surface_form(value)
+    if compact in {"abstract"}:
+        return "Abstract"
+    if compact in {"introduction", "background"}:
+        return "Introduction"
+    if compact in {"methods", "materials and methods", "patients and methods"}:
+        return "Methods"
+    if compact in {"results"}:
+        return "Results"
+    if compact in {"discussion"}:
+        return "Discussion"
+    if compact in {"conclusion", "conclusions"}:
+        return "Conclusion"
+    if compact.startswith("figure ") or compact.startswith("fig "):
+        return "Figure captions"
+    if compact.startswith("table "):
+        return "Tables"
+    return None
+
+
+def parse_section_chunks(
+    text: str,
+    source_id: str,
+    paper_title: str | None,
+) -> tuple[list[PaperChunk], set[str]]:
+    cleaned = text.replace("\r\n", "\n").replace("\r", "\n")
+    paragraphs = [part.strip() for part in re.split(r"\n{2,}", cleaned) if part.strip()]
+    current_section = "Unknown"
+    current_subsection: str | None = None
+    chunks: list[PaperChunk] = []
+    seen_sections: set[str] = set()
+    chunk_index = 1
+
+    for paragraph in paragraphs:
+        first_line = paragraph.splitlines()[0].strip()
+        heading = classify_heading(first_line)
+        if heading and len(paragraph) <= 160:
+            current_section = heading
+            current_subsection = first_line if heading == "Unknown" else None
+            seen_sections.add(current_section)
+            continue
+
+        section = current_section
+        if not seen_sections:
+            seen_sections.add(section)
+
+        text_blocks = re.split(r"(?<=[.!?])\s+", paragraph)
+        buffer = ""
+        for block in text_blocks:
+            candidate = f"{buffer} {block}".strip() if buffer else block
+            if len(candidate) <= 1000:
+                buffer = candidate
+                continue
+            if buffer:
+                chunks.append(
+                    PaperChunk(
+                        chunk_id=f"{source_id}_chunk_{chunk_index}",
+                        section=section,
+                        subsection=current_subsection,
+                        text=buffer,
+                        paper_source_id=source_id,
+                        paper_title=paper_title,
+                    )
+                )
+                chunk_index += 1
+            buffer = block
+        if buffer:
+            chunks.append(
+                PaperChunk(
+                    chunk_id=f"{source_id}_chunk_{chunk_index}",
+                    section=section,
+                    subsection=current_subsection,
+                    text=buffer,
+                    paper_source_id=source_id,
+                    paper_title=paper_title,
+                )
+            )
+            chunk_index += 1
+
+    return chunks, seen_sections
+
+
+def require_openai_client(feature_name: str) -> OpenAI:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{feature_name} requires OPENAI_API_KEY to be set on the backend.",
+        )
+    return OpenAI(api_key=api_key)
+
+
+def call_pathway_model(
+    *,
+    feature_name: str,
+    model_env: str,
+    default_model: str,
+    schema_name: str,
+    instructions: str,
+    input_payload: dict[str, object],
+    response_model: type[BaseModel],
+) -> BaseModel:
+    client = require_openai_client(feature_name)
+    try:
+        response = client.responses.create(
+            model=os.getenv(model_env, default_model),
+            instructions=instructions,
+            input=json.dumps(input_payload),
+            max_output_tokens=7000,
+            temperature=0.1,
+            store=False,
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": schema_name,
+                    "strict": True,
+                    "schema": response_model.model_json_schema(),
+                },
+                "verbosity": "low",
+            },
+        )
+    except AuthenticationError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{feature_name} could not authenticate with OpenAI: {error}",
+        ) from error
+    except APIError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"{feature_name} failed while calling OpenAI: {error}",
+        ) from error
+
+    try:
+        return response_model.model_validate_json(response.output_text)
+    except PydanticValidationError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"{feature_name} returned an invalid structured response.",
+        ) from error
+
+
+def attach_source_metadata_to_extraction(
+    extraction: ExtractionPassResult,
+    source_id: str,
+    paper_title: str | None,
+) -> ExtractionPassResult:
+    for mention in extraction.entity_mentions:
+        if not mention.paper_source_id:
+            mention.paper_source_id = source_id
+        if not mention.paper_title:
+            mention.paper_title = paper_title
+    for evidence in extraction.evidence_items:
+        if not evidence.paper_source_id:
+            evidence.paper_source_id = source_id
+        if not evidence.paper_title:
+            evidence.paper_title = paper_title
+    return extraction
+
+
+def build_pathway_graph(
+    paper_title: str,
+    extraction_results: list[ExtractionPassResult],
+    aggregation_result: AggregationPassResult,
+) -> PathwayGraph:
+    entity_mentions = [
+        mention
+        for result in extraction_results
+        for mention in result.entity_mentions
+    ]
+    evidence_items = [
+        item
+        for result in extraction_results
+        for item in result.evidence_items
+    ]
+
+    return PathwayGraph(
+        paper_metadata={
+            "title": paper_title,
+            "pubmed_id": None,
+            "pmcid": None,
+            "doi": None,
+        },
+        entity_mentions=entity_mentions,
+        evidence_items=evidence_items,
+        normalized_entities=aggregation_result.normalized_entities,
+        default_relations=aggregation_result.default_relations,
+        structural_relations=aggregation_result.structural_relations,
+        nondefault_relations=aggregation_result.nondefault_relations,
+        normalization_decisions=aggregation_result.normalization_decisions,
+        unresolved_issues=aggregation_result.unresolved_issues,
+    )
+
+
+def evidence_supports_default_admission(evidence: EvidenceItem) -> bool:
+    if evidence.support_class not in {"current_paper_direct", "current_paper_indirect"}:
+        return False
+    if not is_results_bearing_section(evidence.section):
+        return False
+    if not evidence.supporting_snippet.strip():
+        return False
+    if not (evidence.experiment_context or "").strip():
+        return False
+    if evidence.confidence < 0.65:
+        return False
+    if contains_vague_language(evidence.supporting_snippet):
+        return False
+    return True
+
+
+def is_structural_relation(relation: AggregatedRelation) -> bool:
+    return relation.relation_category in {
+        "membership",
+        "modification",
+        "state_relation",
+        "equivalence_candidate",
+    }
+
+
+def apply_pathway_admission_policy(graph: PathwayGraph) -> PathwayGraph:
+    evidence_by_id = {item.evidence_id: item for item in graph.evidence_items}
+    admitted: list[AggregatedRelation] = []
+    downgraded: list[AggregatedRelation] = list(graph.nondefault_relations)
+
+    for relation in graph.default_relations:
+        if is_structural_relation(relation):
+            admitted.append(relation)
+            continue
+
+        supporting_evidence = [
+            evidence_by_id[evidence_id]
+            for evidence_id in relation.evidence_ids
+            if evidence_id in evidence_by_id
+        ]
+        if any(evidence_supports_default_admission(item) for item in supporting_evidence):
+            admitted.append(relation)
+            continue
+
+        relation_payload = relation.model_dump()
+        relation_payload.update(
+            {
+                "support_class": relation.support_class or "background_claim",
+                "mechanistic_status": relation.mechanistic_status or "interpretive",
+                "notes": (relation.notes + " Downgraded by deterministic admission policy.").strip(),
+            }
+        )
+        downgraded.append(
+            AggregatedRelation(**relation_payload)
+        )
+
+    graph_payload = graph.model_dump()
+    graph_payload["default_relations"] = admitted
+    graph_payload["nondefault_relations"] = downgraded
+    return PathwayGraph(**graph_payload)
+
+
+def build_deterministic_sanity_report(graph: PathwayGraph) -> PathwaySanityReport:
+    findings: list[PathwaySanityFinding] = []
+    relation_ids = {relation.relation_id for relation in graph.structural_relations}
+    entity_by_id = {entity.entity_id: entity for entity in graph.normalized_entities}
+    membership_targets = {
+        relation.target_entity_id
+        for relation in graph.structural_relations
+        if relation.relation_type == "component_of"
+    }
+    modified_targets = {
+        relation.source_entity_id
+        for relation in graph.structural_relations
+        if relation.relation_type in {"modified_form_of", "active_state_of", "inactive_state_of"}
+    }
+
+    seen_surface_keys: dict[str, str] = {}
+    for entity in graph.normalized_entities:
+        surface_key = normalize_surface_form(entity.canonical_name)
+        if surface_key in seen_surface_keys and seen_surface_keys[surface_key] != entity.entity_id:
+            findings.append(
+                PathwaySanityFinding(
+                    finding_id=f"dup_{entity.entity_id}",
+                    severity="medium",
+                    finding_type="near_duplicate_entities",
+                    description=f"{entity.canonical_name} may duplicate another entity by surface form.",
+                    related_entity_ids=[seen_surface_keys[surface_key], entity.entity_id],
+                    related_relation_ids=[],
+                    recommended_action="mark ambiguous",
+                    confidence=0.7,
+                )
+            )
+        else:
+            seen_surface_keys[surface_key] = entity.entity_id
+
+        if entity.entity_kind == "complex" and entity.entity_id not in membership_targets:
+            findings.append(
+                PathwaySanityFinding(
+                    finding_id=f"complex_{entity.entity_id}",
+                    severity="high",
+                    finding_type="complex_missing_membership",
+                    description=f"{entity.canonical_name} is a complex without explicit component membership.",
+                    related_entity_ids=[entity.entity_id],
+                    related_relation_ids=[],
+                    recommended_action="add membership relation",
+                    confidence=0.8,
+                )
+            )
+
+        if entity.entity_kind == "modified_form" and entity.entity_id not in modified_targets:
+            findings.append(
+                PathwaySanityFinding(
+                    finding_id=f"modified_{entity.entity_id}",
+                    severity="high",
+                    finding_type="modified_form_disconnected",
+                    description=f"{entity.canonical_name} is a modified form without a structural base link.",
+                    related_entity_ids=[entity.entity_id],
+                    related_relation_ids=[],
+                    recommended_action="add modified-form relation",
+                    confidence=0.8,
+                )
+            )
+
+        if entity.entity_kind == "family_or_class":
+            for other in graph.normalized_entities:
+                if other.entity_id == entity.entity_id:
+                    continue
+                if normalize_surface_form(other.canonical_name) == normalize_surface_form(entity.canonical_name):
+                    findings.append(
+                        PathwaySanityFinding(
+                            finding_id=f"family_{entity.entity_id}_{other.entity_id}",
+                            severity="medium",
+                            finding_type="family_member_confusion",
+                            description=f"{entity.canonical_name} may be conflated with a more specific member.",
+                            related_entity_ids=[entity.entity_id, other.entity_id],
+                            related_relation_ids=[],
+                            recommended_action="keep separate",
+                            confidence=0.7,
+                        )
+                    )
+
+    evidence_by_id = {item.evidence_id: item for item in graph.evidence_items}
+    for relation in graph.default_relations:
+        if all(
+            not evidence_supports_default_admission(evidence_by_id[evidence_id])
+            for evidence_id in relation.evidence_ids
+            if evidence_id in evidence_by_id
+        ):
+            findings.append(
+                PathwaySanityFinding(
+                    finding_id=f"weak_{relation.relation_id}",
+                    severity="medium",
+                    finding_type="weak_default_edge",
+                    description=f"{relation.summary} lacks strong deterministic support for the default graph.",
+                    related_entity_ids=[relation.source_entity_id, relation.target_entity_id],
+                    related_relation_ids=[relation.relation_id],
+                    recommended_action="downgrade to nondefault",
+                    confidence=0.75,
+                )
+            )
+
+    high_priority_issue_count = len([finding for finding in findings if finding.severity == "high"])
+    if high_priority_issue_count > 0:
+        quality = "needs_review"
+    elif findings:
+        quality = "acceptable_with_warnings"
+    else:
+        quality = "good"
+
+    return PathwaySanityReport(
+        sanity_findings=findings,
+        summary=PathwaySanitySummary(
+            overall_graph_quality=quality,
+            high_priority_issue_count=high_priority_issue_count,
+            notes="Deterministic sanity audit supplements the model-generated review.",
+        ),
+    )
+
+
+def merge_sanity_reports(
+    model_report: PathwaySanityReport,
+    deterministic_report: PathwaySanityReport,
+) -> PathwaySanityReport:
+    combined_findings = model_report.sanity_findings + [
+        finding
+        for finding in deterministic_report.sanity_findings
+        if finding.finding_id not in {existing.finding_id for existing in model_report.sanity_findings}
+    ]
+    high_priority_issue_count = len([finding for finding in combined_findings if finding.severity == "high"])
+    if high_priority_issue_count > 0:
+        quality = "needs_review"
+    elif combined_findings:
+        quality = "acceptable_with_warnings"
+    else:
+        quality = "good"
+
+    return PathwaySanityReport(
+        sanity_findings=combined_findings,
+        summary=PathwaySanitySummary(
+            overall_graph_quality=quality,
+            high_priority_issue_count=high_priority_issue_count,
+            notes=model_report.summary.notes or deterministic_report.summary.notes,
+        ),
+    )
+
+
+def build_pathway_graph_with_llm(payload: PathwayBuildRequest) -> PathwayBuildResponse:
+    if not payload.paperSources:
+        raise HTTPException(
+            status_code=400,
+            detail="Pathway build requires at least one paper source or raw text source.",
+        )
+
+    parsed_sources: list[ParsedSourceSummary] = []
+    all_chunks: list[PaperChunk] = []
+    warnings: list[str] = []
+    extraction_results: list[ExtractionPassResult] = []
+
+    for source in payload.paperSources:
+        source_text, summary, source_warnings, has_full_text = resolve_source_text(source)
+        warnings.extend(source_warnings)
+
+        if not source_text or not has_full_text:
+            parsed_sources.append(summary)
+            continue
+
+        chunks, seen_sections = parse_section_chunks(source_text, source.sourceId, summary.title)
+        summary.sectionCount = len(seen_sections)
+        summary.chunkCount = len(chunks)
+        parsed_sources.append(summary)
+        all_chunks.extend(chunks)
+
+        extraction = call_pathway_model(
+            feature_name="Pathway build",
+            model_env="OPENAI_PATHWAY_EXTRACTION_MODEL",
+            default_model="gpt-5.4-2026-03-05",
+            schema_name="pathway_extraction",
+            instructions=EXTRACTION_SYSTEM_PROMPT,
+            input_payload={
+                "paper_title": summary.title or payload.title or summary.label,
+                "pubmed_id": summary.pubmedId,
+                "pmcid": summary.pmcid,
+                "doi": None,
+                "json_chunks": [chunk.model_dump() for chunk in chunks],
+            },
+            response_model=ExtractionPassResult,
+        )
+        extraction_results.append(
+            attach_source_metadata_to_extraction(
+                extraction,
+                source.sourceId,
+                summary.title or payload.title or summary.label,
+            )
+        )
+
+    if not extraction_results or not all_chunks:
+        return PathwayBuildResponse(
+            status="error",
+            parsedSources=parsed_sources,
+            pathwayGraph=None,
+            sanityReport=None,
+            buildSummary="No reliable full text was available for conservative pathway extraction.",
+            warnings=warnings,
+            errors=["Provide raw full text or a fetchable PMC source."],
+        )
+
+    combined_mentions = [
+        mention.model_dump()
+        for result in extraction_results
+        for mention in result.entity_mentions
+    ]
+    combined_evidence = [
+        evidence.model_dump()
+        for result in extraction_results
+        for evidence in result.evidence_items
+    ]
+    combined_issues = [
+        issue.model_dump()
+        for result in extraction_results
+        for issue in result.unresolved_structural_issues
+    ]
+
+    aggregation = call_pathway_model(
+        feature_name="Pathway aggregation",
+        model_env="OPENAI_PATHWAY_AGGREGATION_MODEL",
+        default_model="gpt-5.4-2026-03-05",
+        schema_name="pathway_aggregation",
+        instructions=AGGREGATION_SYSTEM_PROMPT,
+        input_payload={
+            "paper_metadata_json": {
+                "title": payload.title or parsed_sources[0].title or parsed_sources[0].label,
+            },
+            "entity_mentions_json": combined_mentions,
+            "evidence_items_json": combined_evidence,
+            "unresolved_structural_issues_json": combined_issues,
+        },
+        response_model=AggregationPassResult,
+    )
+    graph = apply_pathway_admission_policy(
+        build_pathway_graph(
+            payload.title or parsed_sources[0].title or parsed_sources[0].label,
+            extraction_results,
+            aggregation,
+        )
+    )
+
+    if not graph.default_relations and not graph.structural_relations and not graph.nondefault_relations:
+        return PathwayBuildResponse(
+            status="error",
+            parsedSources=parsed_sources,
+            pathwayGraph=None,
+            sanityReport=None,
+            buildSummary="Extraction completed but produced no admissible pathway relations.",
+            warnings=warnings,
+            errors=["No conservative evidence items were retained."],
+        )
+
+    sanity = call_pathway_model(
+        feature_name="Pathway sanity check",
+        model_env="OPENAI_PATHWAY_SANITY_MODEL",
+        default_model="gpt-5.4-2026-03-05",
+        schema_name="pathway_sanity",
+        instructions=SANITY_SYSTEM_PROMPT,
+        input_payload={
+            "normalized_entities_json": [entity.model_dump() for entity in graph.normalized_entities],
+            "default_relations_json": [relation.model_dump() for relation in graph.default_relations],
+            "structural_relations_json": [relation.model_dump() for relation in graph.structural_relations],
+            "nondefault_relations_json": [relation.model_dump() for relation in graph.nondefault_relations],
+            "normalization_decisions_json": [
+                decision.model_dump() for decision in graph.normalization_decisions
+            ],
+        },
+        response_model=PathwaySanityReport,
+    )
+
+    final_sanity = merge_sanity_reports(sanity, build_deterministic_sanity_report(graph))
+    return PathwayBuildResponse(
+        status="ready",
+        parsedSources=parsed_sources,
+        pathwayGraph=graph,
+        sanityReport=final_sanity,
+        buildSummary=(
+            f"Built a conservative pathway graph with {len(graph.normalized_entities)} entities, "
+            f"{len(graph.default_relations)} default relations, and "
+            f"{final_sanity.summary.high_priority_issue_count} high-priority sanity findings."
+        ),
+        warnings=warnings,
+        errors=[],
+    )
+
+
+def build_entity_catalog(graph: PathwayGraph) -> list[dict[str, object]]:
+    return [
+        {
+            "entity_id": entity.entity_id,
+            "canonical_name": entity.canonical_name,
+            "entity_type": entity.entity_type,
+            "aliases": entity.aliases,
+        }
+        for entity in graph.normalized_entities
+    ]
+
+
+def resolve_entity_match(
+    graph: PathwayGraph,
+    text: str,
+) -> ResolvedEntityMatch:
+    normalized_text = normalize_surface_form(text)
+    exact_matches = [
+        entity
+        for entity in graph.normalized_entities
+        if normalize_surface_form(entity.canonical_name) == normalized_text
+    ]
+    if len(exact_matches) == 1:
+        entity = exact_matches[0]
+        return ResolvedEntityMatch(
+            input_text=text,
+            matched_entity_id=entity.entity_id,
+            matched_entity_name=entity.canonical_name,
+            match_confidence=0.99,
+            match_status="exact",
+        )
+    if len(exact_matches) > 1:
+        return ResolvedEntityMatch(
+            input_text=text,
+            match_confidence=0.5,
+            match_status="ambiguous",
+        )
+
+    alias_matches = [
+        entity
+        for entity in graph.normalized_entities
+        if normalized_text in {normalize_surface_form(alias) for alias in entity.aliases}
+    ]
+    if len(alias_matches) == 1:
+        entity = alias_matches[0]
+        return ResolvedEntityMatch(
+            input_text=text,
+            matched_entity_id=entity.entity_id,
+            matched_entity_name=entity.canonical_name,
+            match_confidence=0.85,
+            match_status="alias",
+        )
+    if len(alias_matches) > 1:
+        return ResolvedEntityMatch(
+            input_text=text,
+            match_confidence=0.45,
+            match_status="ambiguous",
+        )
+
+    fuzzy_matches = [
+        entity
+        for entity in graph.normalized_entities
+        if normalized_text and normalized_text in normalize_surface_form(entity.canonical_name)
+    ]
+    if len(fuzzy_matches) == 1:
+        entity = fuzzy_matches[0]
+        return ResolvedEntityMatch(
+            input_text=text,
+            matched_entity_id=entity.entity_id,
+            matched_entity_name=entity.canonical_name,
+            match_confidence=0.68,
+            match_status="fuzzy",
+        )
+
+    return ResolvedEntityMatch(
+        input_text=text,
+        match_confidence=0,
+        match_status="unresolved",
+    )
+
+
+def relation_matches_query_plan(
+    relation: AggregatedRelation,
+    graph: PathwayGraph,
+    plan: PathwayQueryPlan,
+) -> bool:
+    if plan.allowed_relation_types and relation.relation_type not in plan.allowed_relation_types:
+        return False
+
+    if relation.confidence < float(plan.evidence_filter.min_confidence):
+        return False
+
+    evidence_by_id = {item.evidence_id: item for item in graph.evidence_items}
+    evidence = [
+        evidence_by_id[evidence_id]
+        for evidence_id in relation.evidence_ids
+        if evidence_id in evidence_by_id
+    ]
+
+    modalities = set(plan.evidence_filter.modalities)
+    if modalities and not any(item.evidence_modality in modalities for item in evidence):
+        return False
+
+    support_classes = set(plan.evidence_filter.support_classes)
+    if support_classes and not any(item.support_class in support_classes for item in evidence):
+        return False
+
+    if not plan.evidence_filter.include_background:
+        if relation.support_class == "background_claim":
+            return False
+
+    return True
+
+
+def get_query_relations(graph: PathwayGraph, plan: PathwayQueryPlan) -> list[AggregatedRelation]:
+    relations = list(graph.default_relations)
+    if plan.include_structural_relations:
+        relations.extend(graph.structural_relations)
+    if plan.include_nondefault_relations:
+        relations.extend(graph.nondefault_relations)
+    return [relation for relation in relations if relation_matches_query_plan(relation, graph, plan)]
+
+
+def build_evidence_cards(
+    graph: PathwayGraph,
+    relation_ids: list[str],
+) -> list[EvidenceCard]:
+    relation_by_id = {
+        relation.relation_id: relation
+        for relation in (
+            graph.default_relations + graph.structural_relations + graph.nondefault_relations
+        )
+    }
+    evidence_by_id = {item.evidence_id: item for item in graph.evidence_items}
+    cards: list[EvidenceCard] = []
+    for relation_id in relation_ids:
+        relation = relation_by_id.get(relation_id)
+        if not relation:
+            continue
+        for evidence_id in relation.evidence_ids[:3]:
+            evidence = evidence_by_id.get(evidence_id)
+            if not evidence:
+                continue
+            cards.append(
+                EvidenceCard(
+                    relation_id=relation_id,
+                    evidence_id=evidence.evidence_id,
+                    paper_title=evidence.paper_title or graph.paper_metadata.title or "Unknown paper",
+                    section=evidence.section,
+                    support_class=evidence.support_class,
+                    evidence_modality=evidence.evidence_modality,
+                    experiment_context=evidence.experiment_context,
+                    supporting_snippet=evidence.supporting_snippet,
+                )
+            )
+    return cards
+
+
+def execute_path_search(
+    graph: PathwayGraph,
+    relations: list[AggregatedRelation],
+    source_entity_id: str,
+    target_entity_id: str,
+    max_hops: int,
+) -> tuple[list[str], list[str]]:
+    adjacency: dict[str, list[tuple[str, str]]] = {}
+    for relation in relations:
+        adjacency.setdefault(relation.source_entity_id, []).append(
+            (relation.target_entity_id, relation.relation_id)
+        )
+        if relation.direction == "undirected":
+            adjacency.setdefault(relation.target_entity_id, []).append(
+                (relation.source_entity_id, relation.relation_id)
+            )
+
+    queue = deque([(source_entity_id, [source_entity_id], [])])
+    visited = {(source_entity_id, 0)}
+    while queue:
+        current, entity_path, relation_path = queue.popleft()
+        if current == target_entity_id:
+            return entity_path, relation_path
+        if len(relation_path) >= max_hops:
+            continue
+        for next_entity, relation_id in adjacency.get(current, []):
+            state = (next_entity, len(relation_path) + 1)
+            if state in visited:
+                continue
+            visited.add(state)
+            queue.append(
+                (
+                    next_entity,
+                    entity_path + [next_entity],
+                    relation_path + [relation_id],
+                )
+            )
+
+    return [], []
+
+
+def execute_pathway_query_plan(
+    graph: PathwayGraph,
+    plan: PathwayQueryPlan,
+) -> PathwayQueryResponse:
+    entity_texts = list(plan.entity_texts)
+    if plan.source_entity_text:
+        entity_texts.append(plan.source_entity_text)
+    if plan.target_entity_text:
+        entity_texts.append(plan.target_entity_text)
+    resolved_entities = [resolve_entity_match(graph, text) for text in entity_texts]
+
+    if any(match.match_status == "ambiguous" for match in resolved_entities):
+        return PathwayQueryResponse(
+            query_status="ambiguous_entity",
+            query_plan={
+                "query_intent": plan.query_intent,
+                "search_mode": plan.search_mode,
+                "max_hops": plan.max_hops,
+            },
+            resolved_entities=resolved_entities,
+            subgraph_entity_ids=[],
+            subgraph_relation_ids=[],
+            evidence_cards=[],
+            answer_summary="Multiple entities matched the query text. Keep entities separate and refine the request.",
+            notes=["Try a more specific entity name or alias."],
+        )
+
+    if entity_texts and any(match.match_status == "unresolved" for match in resolved_entities):
+        return PathwayQueryResponse(
+            query_status="no_match",
+            query_plan={
+                "query_intent": plan.query_intent,
+                "search_mode": plan.search_mode,
+                "max_hops": plan.max_hops,
+            },
+            resolved_entities=resolved_entities,
+            subgraph_entity_ids=[],
+            subgraph_relation_ids=[],
+            evidence_cards=[],
+            answer_summary="No graph entities matched the requested text conservatively.",
+            notes=["Query execution only uses stored normalized entities and aliases."],
+        )
+
+    relations = get_query_relations(graph, plan)
+    relation_ids: list[str] = []
+    entity_ids: list[str] = []
+    notes: list[str] = []
+
+    if plan.query_intent in {"path_between", "direct_relation", "evidence_for_relation"}:
+        if not plan.source_entity_text or not plan.target_entity_text:
+            return PathwayQueryResponse(
+                query_status="unsupported_query",
+                query_plan={
+                    "query_intent": plan.query_intent,
+                    "search_mode": plan.search_mode,
+                    "max_hops": plan.max_hops,
+                },
+                resolved_entities=resolved_entities,
+                subgraph_entity_ids=[],
+                subgraph_relation_ids=[],
+                evidence_cards=[],
+                answer_summary="This query requires both a source and target entity.",
+                notes=[],
+            )
+
+        source_match = resolve_entity_match(graph, plan.source_entity_text)
+        target_match = resolve_entity_match(graph, plan.target_entity_text)
+        resolved_entities = [source_match, target_match]
+        if not source_match.matched_entity_id or not target_match.matched_entity_id:
+            return PathwayQueryResponse(
+                query_status="no_match",
+                query_plan={
+                    "query_intent": plan.query_intent,
+                    "search_mode": plan.search_mode,
+                    "max_hops": plan.max_hops,
+                },
+                resolved_entities=resolved_entities,
+                subgraph_entity_ids=[],
+                subgraph_relation_ids=[],
+                evidence_cards=[],
+                answer_summary="One or both entities could not be resolved conservatively.",
+                notes=[],
+            )
+
+        if plan.query_intent in {"direct_relation", "evidence_for_relation"} or plan.search_mode == "direct_only":
+            direct_relations = [
+                relation
+                for relation in relations
+                if relation.source_entity_id == source_match.matched_entity_id
+                and relation.target_entity_id == target_match.matched_entity_id
+            ]
+            if not direct_relations:
+                return PathwayQueryResponse(
+                    query_status="no_supported_path",
+                    query_plan={
+                        "query_intent": plan.query_intent,
+                        "search_mode": plan.search_mode,
+                        "max_hops": plan.max_hops,
+                    },
+                    resolved_entities=resolved_entities,
+                    subgraph_entity_ids=[],
+                    subgraph_relation_ids=[],
+                    evidence_cards=[],
+                    answer_summary="No direct supported relation matched the requested constraints.",
+                    notes=[],
+                )
+            relation_ids = [relation.relation_id for relation in direct_relations]
+            entity_ids = [source_match.matched_entity_id, target_match.matched_entity_id]
+        else:
+            entity_path, relation_path = execute_path_search(
+                graph,
+                relations,
+                source_match.matched_entity_id,
+                target_match.matched_entity_id,
+                plan.max_hops,
+            )
+            if not relation_path:
+                return PathwayQueryResponse(
+                    query_status="no_supported_path",
+                    query_plan={
+                        "query_intent": plan.query_intent,
+                        "search_mode": plan.search_mode,
+                        "max_hops": plan.max_hops,
+                    },
+                    resolved_entities=resolved_entities,
+                    subgraph_entity_ids=[],
+                    subgraph_relation_ids=[],
+                    evidence_cards=[],
+                    answer_summary="No supported path matched the requested evidence constraints.",
+                    notes=[],
+                )
+            entity_ids = entity_path
+            relation_ids = relation_path
+            if any(
+                relation.support_class not in {"current_paper_direct", "current_paper_indirect"}
+                for relation in relations
+                if relation.relation_id in relation_ids
+            ):
+                notes.append("At least one retrieved edge is non-primary or interpretive.")
+
+    elif plan.query_intent in {"neighbors", "summarize_subgraph", "highlight_entities", "highlight_relations"}:
+        selected_ids = [match.matched_entity_id for match in resolved_entities if match.matched_entity_id]
+        if not selected_ids:
+            entity_ids = [entity.entity_id for entity in graph.normalized_entities[:12]]
+            relation_ids = [relation.relation_id for relation in relations[:16]]
+        else:
+            relation_ids = [
+                relation.relation_id
+                for relation in relations
+                if relation.source_entity_id in selected_ids or relation.target_entity_id in selected_ids
+            ]
+            entity_ids = list(
+                {
+                    entity_id
+                    for relation in relations
+                    if relation.relation_id in relation_ids
+                    for entity_id in (relation.source_entity_id, relation.target_entity_id)
+                }
+            )
+    elif plan.query_intent == "support_gap":
+        selected_ids = {match.matched_entity_id for match in resolved_entities if match.matched_entity_id}
+        gap_issues = [
+            issue
+            for issue in graph.unresolved_issues
+            if not selected_ids or any(entity_id in selected_ids for entity_id in issue.related_entity_ids)
+        ]
+        notes = [issue.description for issue in gap_issues[:4]]
+        relation_ids = [
+            relation.relation_id
+            for relation in graph.nondefault_relations
+            if not selected_ids
+            or relation.source_entity_id in selected_ids
+            or relation.target_entity_id in selected_ids
+        ][:10]
+        entity_ids = list(selected_ids)
+        if not relation_ids and not notes:
+            notes = ["No explicit support-gap annotations were found for the selected entities."]
+    else:
+        return PathwayQueryResponse(
+            query_status="unsupported_query",
+            query_plan={
+                "query_intent": plan.query_intent,
+                "search_mode": plan.search_mode,
+                "max_hops": plan.max_hops,
+            },
+            resolved_entities=resolved_entities,
+            subgraph_entity_ids=[],
+            subgraph_relation_ids=[],
+            evidence_cards=[],
+            answer_summary="This query intent is not supported by the current deterministic executor.",
+            notes=[],
+        )
+
+    evidence_cards = build_evidence_cards(graph, relation_ids)
+    if plan.query_intent == "support_gap":
+        answer_summary = (
+            "Support gaps are shown from unresolved issues and nondefault relations; "
+            "the graph does not currently contain fully admitted evidence for all requested claims."
+        )
+    elif relation_ids:
+        answer_summary = (
+            f"Retrieved {len(relation_ids)} relation{'s' if len(relation_ids) != 1 else ''} "
+            f"across {len(entity_ids)} entit{'ies' if len(entity_ids) != 1 else 'y'}."
+        )
+    else:
+        answer_summary = "No supported subgraph matched the requested constraints."
+
+    return PathwayQueryResponse(
+        query_status="ok" if relation_ids or entity_ids or notes else "no_supported_path",
+        query_plan={
+            "query_intent": plan.query_intent,
+            "search_mode": plan.search_mode,
+            "max_hops": plan.max_hops,
+        },
+        resolved_entities=resolved_entities,
+        subgraph_entity_ids=entity_ids,
+        subgraph_relation_ids=relation_ids,
+        evidence_cards=evidence_cards,
+        answer_summary=answer_summary,
+        notes=notes,
+    )
+
+
+def query_pathway_graph(payload: PathwayQueryRequest) -> PathwayQueryResponse:
+    plan = call_pathway_model(
+        feature_name="Pathway query",
+        model_env="OPENAI_PATHWAY_QUERY_MODEL",
+        default_model="gpt-5.4-2026-03-05",
+        schema_name="pathway_query_plan",
+        instructions=QUERY_SYSTEM_PROMPT,
+        input_payload={
+            "entity_catalog_json": build_entity_catalog(payload.pathwayGraph),
+            "user_query": payload.query,
+        },
+        response_model=PathwayQueryPlan,
+    )
+    return execute_pathway_query_plan(payload.pathwayGraph, plan)
+
+
 @app.get("/api/health")
 def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
@@ -1892,6 +3353,8 @@ def schedule(payload: GraphPayload) -> ScheduleResponse:
 
 @app.post("/api/accelerate/propose", response_model=AccelerateResponse)
 def accelerate_propose(payload: AccelerateRequest) -> AccelerateResponse:
+    experiment_nodes = get_experiment_nodes(payload)
+    experiment_edges = get_experiment_edges(experiment_nodes, payload.edges)
     baseline_graph = GraphPayload(
         program=payload.program,
         personnel=payload.personnel,
@@ -1899,7 +3362,7 @@ def accelerate_propose(payload: AccelerateRequest) -> AccelerateResponse:
         edges=payload.edges,
     )
     baseline_schedule = solve_schedule_response(baseline_graph)
-    baseline_cost = get_planned_cost(payload.nodes, payload.edges)
+    baseline_cost = get_planned_cost(experiment_nodes, experiment_edges)
     baseline_duration = baseline_schedule.makespan
     baseline_graph_context = build_chat_graph_context(
         ChatRequest(messages=[], graph=baseline_graph, schedule=baseline_schedule)
@@ -2004,3 +3467,13 @@ def review(payload: ReviewRequest) -> ReviewResponse:
 @app.post("/api/evidence/query", response_model=EvidenceQueryResponse)
 def evidence_query(payload: EvidenceQueryRequest) -> EvidenceQueryResponse:
     return answer_evidence_query_with_llm(payload)
+
+
+@app.post("/api/pathway/build", response_model=PathwayBuildResponse)
+def pathway_build(payload: PathwayBuildRequest) -> PathwayBuildResponse:
+    return build_pathway_graph_with_llm(payload)
+
+
+@app.post("/api/pathway/query", response_model=PathwayQueryResponse)
+def pathway_query(payload: PathwayQueryRequest) -> PathwayQueryResponse:
+    return query_pathway_graph(payload)

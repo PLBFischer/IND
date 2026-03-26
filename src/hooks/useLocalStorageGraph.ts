@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import type {
+  BiologicalPathwayNode,
+  ExperimentNode,
   FlowEdge,
   FlowNode,
   Personnel,
@@ -17,7 +19,8 @@ import {
   NODE_WIDTH,
   STORAGE_KEY,
 } from '../utils/constants';
-import { isCompletedNodeStatus } from '../utils/graph';
+import type { PathwayPaperSource } from '../types/pathway';
+import { isCompletedNodeStatus, isExperimentNode } from '../utils/graph';
 
 export type GraphState = {
   program: ProgramContext;
@@ -40,6 +43,7 @@ const defaultState: GraphState = {
   nodes: [
     {
       id: 'node_pk_brain',
+      nodeKind: 'experiment',
       title: 'Rodent PK / brain exposure',
       type: 'pk',
       objective:
@@ -65,11 +69,13 @@ const defaultState: GraphState = {
       indRelevance:
         'Feeds the clinical pharmacology narrative and exposure-driven rationale for dose escalation.',
       evidenceRefs: [],
+      linkedPathwayNodeIds: [],
       x: 160,
       y: 140,
     },
     {
       id: 'node_formulation_ready',
+      nodeKind: 'experiment',
       title: 'Suspension formulation and analytics',
       type: 'formulation_cmc',
       objective:
@@ -95,11 +101,13 @@ const defaultState: GraphState = {
       indRelevance:
         'Reduces the risk that exposure or safety data must be reinterpreted because of formulation drift.',
       evidenceRefs: [],
+      linkedPathwayNodeIds: [],
       x: 180,
       y: 360,
     },
     {
       id: 'node_efficacy_bridge',
+      nodeKind: 'experiment',
       title: 'In vivo efficacy bridge',
       type: 'efficacy',
       objective:
@@ -125,11 +133,13 @@ const defaultState: GraphState = {
       indRelevance:
         'Provides part of the efficacy plausibility narrative for why the asset is ready for Phase 1.',
       evidenceRefs: [],
+      linkedPathwayNodeIds: [],
       x: 540,
       y: 140,
     },
     {
       id: 'node_tox_drf',
+      nodeKind: 'experiment',
       title: '14-day dose-range finding tox',
       type: 'tox',
       objective:
@@ -155,6 +165,7 @@ const defaultState: GraphState = {
       indRelevance:
         'Core support for the safety narrative in the IND package.',
       evidenceRefs: [],
+      linkedPathwayNodeIds: [],
       x: 920,
       y: 220,
     },
@@ -190,17 +201,17 @@ const defaultState: GraphState = {
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
-const isValidNodeType = (value: unknown): value is FlowNode['type'] =>
+const isValidNodeType = (value: unknown): value is ExperimentNode['type'] =>
   typeof value === 'string' &&
   (NODE_TYPE_OPTIONS as readonly string[]).includes(value);
 
-const isValidNodeStatus = (value: unknown): value is FlowNode['status'] =>
+const isValidNodeStatus = (value: unknown): value is ExperimentNode['status'] =>
   typeof value === 'string' &&
   (NODE_STATUS_OPTIONS as readonly string[]).includes(value);
 
 const isValidBlockerPriority = (
   value: unknown,
-): value is FlowNode['blockerPriority'] =>
+): value is ExperimentNode['blockerPriority'] =>
   typeof value === 'string' &&
   (BLOCKER_PRIORITY_OPTIONS as readonly string[]).includes(value);
 
@@ -224,6 +235,66 @@ const normalizeEvidenceRefs = (value: unknown): string[] => {
   return [];
 };
 
+const normalizeStringList = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) =>
+      typeof entry === 'string' && entry.trim() ? [entry.trim()] : [],
+    );
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split('\n')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+};
+
+const normalizePathwaySources = (value: unknown): PathwayPaperSource[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry, index) => {
+    if (!isObject(entry) || typeof entry.sourceValue !== 'string') {
+      return [];
+    }
+
+    const sourceType =
+      entry.sourceType === 'pubmed_url' ||
+      entry.sourceType === 'pmc_url' ||
+      entry.sourceType === 'pmcid' ||
+      entry.sourceType === 'raw_text'
+        ? entry.sourceType
+        : 'raw_text';
+    const fetchStatus =
+      entry.fetchStatus === 'pending' ||
+      entry.fetchStatus === 'fetched' ||
+      entry.fetchStatus === 'failed'
+        ? entry.fetchStatus
+        : undefined;
+
+    return [
+      {
+        sourceId:
+          typeof entry.sourceId === 'string' && entry.sourceId.trim()
+            ? entry.sourceId
+            : `source_${index + 1}`,
+        label: typeof entry.label === 'string' ? entry.label : undefined,
+        sourceType,
+        sourceValue: entry.sourceValue,
+        title: typeof entry.title === 'string' ? entry.title : null,
+        pubmedId: typeof entry.pubmedId === 'string' ? entry.pubmedId : null,
+        pmcid: typeof entry.pmcid === 'string' ? entry.pmcid : null,
+        fetchStatus,
+        fetchError: typeof entry.fetchError === 'string' ? entry.fetchError : null,
+      },
+    ];
+  });
+};
+
 const normalizeProgramContext = (value: unknown): ProgramContext => {
   if (!isObject(value)) {
     return defaultProgram;
@@ -245,11 +316,7 @@ const normalizeProgramContext = (value: unknown): ProgramContext => {
   };
 };
 
-const normalizeNode = (node: unknown): FlowNode | null => {
-  if (!isObject(node) || typeof node.id !== 'string' || typeof node.title !== 'string') {
-    return null;
-  }
-
+const normalizeExperimentNode = (node: Record<string, unknown>): ExperimentNode => {
   const legacyProcedureSummary =
     typeof node.content === 'string' ? node.content : '';
   const status = isValidNodeStatus(node.status)
@@ -261,8 +328,9 @@ const normalizeNode = (node: unknown): FlowNode | null => {
       : 'planned';
 
   return {
-    id: node.id,
-    title: node.title,
+    id: node.id as string,
+    nodeKind: 'experiment',
+    title: node.title as string,
     type: isValidNodeType(node.type) ? node.type : 'other',
     objective: typeof node.objective === 'string' ? node.objective : '',
     procedureSummary:
@@ -299,9 +367,61 @@ const normalizeNode = (node: unknown): FlowNode | null => {
       typeof node.phase1Relevance === 'string' ? node.phase1Relevance : '',
     indRelevance: typeof node.indRelevance === 'string' ? node.indRelevance : '',
     evidenceRefs: normalizeEvidenceRefs(node.evidenceRefs),
+    linkedPathwayNodeIds: normalizeStringList(node.linkedPathwayNodeIds),
     x: normalizeNumber(node.x, 120),
     y: normalizeNumber(node.y, 120),
   };
+};
+
+const normalizePathwayNode = (node: Record<string, unknown>): BiologicalPathwayNode => ({
+  id: node.id as string,
+  nodeKind: 'biological_pathway',
+  title: node.title as string,
+  x: normalizeNumber(node.x, 120),
+  y: normalizeNumber(node.y, 120),
+  summary: typeof node.summary === 'string' ? node.summary : '',
+  focusTerms: normalizeStringList(node.focusTerms),
+  paperSources: normalizePathwaySources(node.paperSources),
+  extractionStatus:
+    node.extractionStatus === 'building' ||
+    node.extractionStatus === 'ready' ||
+    node.extractionStatus === 'error'
+      ? node.extractionStatus
+      : 'empty',
+  extractionError: typeof node.extractionError === 'string' ? node.extractionError : null,
+  pathwayGraph:
+    typeof node.pathwayGraph === 'object' && node.pathwayGraph !== null
+      ? (node.pathwayGraph as BiologicalPathwayNode['pathwayGraph'])
+      : null,
+  sanityReport:
+    typeof node.sanityReport === 'object' && node.sanityReport !== null
+      ? (node.sanityReport as BiologicalPathwayNode['sanityReport'])
+      : null,
+  queryHistory: Array.isArray(node.queryHistory)
+    ? (node.queryHistory as BiologicalPathwayNode['queryHistory'])
+    : [],
+  lastBuiltAt: typeof node.lastBuiltAt === 'string' ? node.lastBuiltAt : null,
+  linkedExperimentNodeIds: normalizeStringList(node.linkedExperimentNodeIds),
+  lastBuildResponse:
+    typeof node.lastBuildResponse === 'object' && node.lastBuildResponse !== null
+      ? (node.lastBuildResponse as BiologicalPathwayNode['lastBuildResponse'])
+      : null,
+  latestQueryResponse:
+    typeof node.latestQueryResponse === 'object' && node.latestQueryResponse !== null
+      ? (node.latestQueryResponse as BiologicalPathwayNode['latestQueryResponse'])
+      : null,
+});
+
+const normalizeNode = (node: unknown): FlowNode | null => {
+  if (!isObject(node) || typeof node.id !== 'string' || typeof node.title !== 'string') {
+    return null;
+  }
+
+  if (node.nodeKind === 'biological_pathway') {
+    return normalizePathwayNode(node);
+  }
+
+  return normalizeExperimentNode(node);
 };
 
 const normalizeEdge = (edge: unknown): FlowEdge | null => {
@@ -459,8 +579,10 @@ export const autoLayoutGraphState = (state: GraphState): GraphState => {
           return leftParentDepth - rightParentDepth;
         }
 
-        if (isCompletedNodeStatus(left.status) !== isCompletedNodeStatus(right.status)) {
-          return isCompletedNodeStatus(left.status) ? -1 : 1;
+        if (isExperimentNode(left) && isExperimentNode(right)) {
+          if (isCompletedNodeStatus(left.status) !== isCompletedNodeStatus(right.status)) {
+            return isCompletedNodeStatus(left.status) ? -1 : 1;
+          }
         }
 
         return left.title.localeCompare(right.title);

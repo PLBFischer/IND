@@ -1,10 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { FlowNode, NodeRiskAssessment } from '../types/graph';
+import type { ExperimentNode, NodeRiskAssessment } from '../types/graph';
 import { NodeEditor } from './NodeEditor';
 
-const node: FlowNode = {
+const node: ExperimentNode = {
   id: 'node_pk',
+  nodeKind: 'experiment',
   title: 'Rodent PK / brain exposure',
   type: 'pk',
   objective: 'Establish whether oral dosing reaches the target exposure.',
@@ -92,6 +93,7 @@ describe('NodeEditor', () => {
 
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
+        nodeKind: 'experiment',
         objective: 'Updated objective',
         status: 'blocked',
         evidenceRefs: ['Memo A', 'Memo B'],

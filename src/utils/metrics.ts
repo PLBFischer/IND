@@ -1,6 +1,10 @@
 import type { FlowEdge, FlowNode } from '../types/graph';
 import { getEffectiveNodeCost } from './graph';
-import { isActiveNodeStatus } from './graph';
+import {
+  getExperimentEdges,
+  getExperimentNodes,
+  isActiveNodeStatus,
+} from './graph';
 
 export const formatMetric = (value: number) => {
   if (Number.isNaN(value)) {
@@ -11,26 +15,30 @@ export const formatMetric = (value: number) => {
 };
 
 export const getTotalCost = (nodes: FlowNode[], edges: FlowEdge[]) =>
-  nodes.reduce(
-    (sum, node) => sum + (isActiveNodeStatus(node.status) ? getEffectiveNodeCost(node, edges) : 0),
+  getExperimentNodes(nodes).reduce(
+    (sum, node) =>
+      sum + (isActiveNodeStatus(node.status) ? getEffectiveNodeCost(node, edges) : 0),
     0,
   );
 
 export const getTotalDuration = (nodes: FlowNode[], edges: FlowEdge[]) => {
-  if (nodes.length === 0) {
+  const experimentNodes = getExperimentNodes(nodes);
+  const experimentEdges = getExperimentEdges(nodes, edges);
+
+  if (experimentNodes.length === 0) {
     return 0;
   }
 
-  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+  const nodeMap = new Map(experimentNodes.map((node) => [node.id, node]));
   const adjacency = new Map<string, string[]>();
   const indegree = new Map<string, number>();
 
-  for (const node of nodes) {
+  for (const node of experimentNodes) {
     adjacency.set(node.id, []);
     indegree.set(node.id, 0);
   }
 
-  for (const edge of edges) {
+  for (const edge of experimentEdges) {
     if (!nodeMap.has(edge.source) || !nodeMap.has(edge.target)) {
       continue;
     }
@@ -42,7 +50,7 @@ export const getTotalDuration = (nodes: FlowNode[], edges: FlowEdge[]) => {
   const queue: string[] = [];
   const longestPath = new Map<string, number>();
 
-  for (const node of nodes) {
+  for (const node of experimentNodes) {
     const weight = isActiveNodeStatus(node.status) ? node.duration : 0;
     longestPath.set(node.id, weight);
 
@@ -83,7 +91,7 @@ export const getTotalDuration = (nodes: FlowNode[], edges: FlowEdge[]) => {
     }
   }
 
-  if (visitedCount !== nodes.length) {
+  if (visitedCount !== experimentNodes.length) {
     return Number.NaN;
   }
 
