@@ -646,10 +646,25 @@ export function PathwayPanel({
               const startY = source.y + (dy / length) * sourceRadius;
               const endX = target.x - (dx / length) * targetRadius;
               const endY = target.y - (dy / length) * targetRadius;
-              const path = `M ${startX} ${startY} L ${endX} ${endY}`;
+              const reverseRelation = visibleRelations.find(
+                (candidate) =>
+                  candidate.source_entity_id === relation.target_entity_id &&
+                  candidate.target_entity_id === relation.source_entity_id,
+              );
+              const hasBidirectionalPair = Boolean(
+                reverseRelation && relation.source_entity_id !== relation.target_entity_id,
+              );
+              const curveOffset = hasBidirectionalPair ? 36 : 0;
+              const normalX = -dy / length;
+              const normalY = dx / length;
+              const controlX = (startX + endX) / 2 + normalX * curveOffset;
+              const controlY = (startY + endY) / 2 + normalY * curveOffset;
+              const path = hasBidirectionalPair
+                ? `M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}`
+                : `M ${startX} ${startY} L ${endX} ${endY}`;
               const label = getPathwayRelationEdgeLabel(relation.relation_type);
-              const midX = (startX + endX) / 2;
-              const midY = (startY + endY) / 2;
+              const midX = hasBidirectionalPair ? 0.25 * startX + 0.5 * controlX + 0.25 * endX : (startX + endX) / 2;
+              const midY = hasBidirectionalPair ? 0.25 * startY + 0.5 * controlY + 0.25 * endY : (startY + endY) / 2;
 
               return (
                 <g key={relation.relation_id}>

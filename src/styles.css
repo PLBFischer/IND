@@ -1965,6 +1965,7 @@ button {
   border: 1px solid var(--border);
   background: linear-gradient(180deg, #f8fbf9 0%, #f3f6f4 100%);
   min-height: 460px;
+  margin-bottom: 18px;
   overflow: hidden;
   touch-action: none;
   cursor: grab;
