@@ -25,19 +25,13 @@ type NodeEditorProps = {
   showParallelizationMultiplier: boolean;
   isConnectMode: boolean;
   isParallelizeMode: boolean;
+  registerCloseHandler?: (handler: (() => void) | null) => void;
   onClose: () => void;
   onSave: (values: Omit<ExperimentNode, 'id' | 'x' | 'y'>) => void;
   onDelete: () => void;
   onStartConnect: () => void;
   onStartParallelize: () => void;
-  onCancelConnect: () => void;
 };
-
-const splitEvidenceRefs = (value: string) =>
-  value
-    .split('\n')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
 
 export function NodeEditor({
   mode,
@@ -49,12 +43,12 @@ export function NodeEditor({
   showParallelizationMultiplier,
   isConnectMode,
   isParallelizeMode,
+  registerCloseHandler,
   onClose,
   onSave,
   onDelete,
   onStartConnect,
   onStartParallelize,
-  onCancelConnect,
 }: NodeEditorProps) {
   const [title, setTitle] = useState('');
   const [type, setType] = useState<ExperimentNode['type']>('other');
@@ -73,9 +67,6 @@ export function NodeEditor({
   const [status, setStatus] = useState<ExperimentNode['status']>('planned');
   const [actualStartWeek, setActualStartWeek] = useState('');
   const [blockerPriority, setBlockerPriority] = useState<ExperimentNode['blockerPriority']>('supporting');
-  const [phase1Relevance, setPhase1Relevance] = useState('');
-  const [indRelevance, setIndRelevance] = useState('');
-  const [evidenceRefsText, setEvidenceRefsText] = useState('');
   const [isOperatorMenuOpen, setIsOperatorMenuOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -102,9 +93,6 @@ export function NodeEditor({
           : '',
       );
       setBlockerPriority(node.blockerPriority);
-      setPhase1Relevance(node.phase1Relevance);
-      setIndRelevance(node.indRelevance);
-      setEvidenceRefsText(node.evidenceRefs.join('\n'));
       setIsOperatorMenuOpen(false);
       setError(null);
       return;
@@ -128,9 +116,6 @@ export function NodeEditor({
       setStatus('planned');
       setActualStartWeek('');
       setBlockerPriority('supporting');
-      setPhase1Relevance('');
-      setIndRelevance('');
-      setEvidenceRefsText('');
       setIsOperatorMenuOpen(false);
       setError(null);
     }
@@ -154,6 +139,111 @@ export function NodeEditor({
 
   const isEditing = mode === 'edit' && node;
   const isRiskEligible = Boolean(node && isActiveNodeStatus(node.status));
+  const closeWithoutSaving = () => {
+    setError(null);
+    onClose();
+  };
+
+  const buildNodeValues = (requireTitle: boolean) => {
+    const nextTitle = title.trim();
+    if (requireTitle && !nextTitle) {
+      setError('Title is required.');
+      return null;
+    }
+
+    const nextCost = Number(cost);
+    const nextDuration = Number(duration);
+    const nextWorkHoursPerWeek = Number(workHoursPerWeek);
+    const nextActualStartWeek = actualStartWeek.trim()
+      ? Number(actualStartWeek)
+      : null;
+
+    if (
+      !Number.isFinite(nextCost) ||
+      !Number.isFinite(nextDuration) ||
+      !Number.isFinite(nextWorkHoursPerWeek)
+    ) {
+      setError('Cost, duration, and weekly work hours must be valid numbers.');
+      return null;
+    }
+
+    if (nextCost < 0 || nextDuration < 0 || nextWorkHoursPerWeek < 0) {
+      setError('Cost, duration, and weekly work hours cannot be negative.');
+      return null;
+    }
+
+    if (
+      nextActualStartWeek !== null &&
+      (!Number.isFinite(nextActualStartWeek) || nextActualStartWeek < 1)
+    ) {
+      setError('Actual start week must be a valid week number.');
+      return null;
+    }
+
+    setError(null);
+    return {
+      nodeKind: 'experiment' as const,
+      title: nextTitle,
+      type,
+      objective: objective.trim(),
+      procedureSummary: procedureSummary.trim(),
+      successCriteria: successCriteria.trim(),
+      decisionSupported: decisionSupported.trim(),
+      results: results.trim(),
+      operationalNotes: operationalNotes.trim(),
+      cost: nextCost,
+      duration: nextDuration,
+      workHoursPerWeek: nextWorkHoursPerWeek,
+      parallelizationMultiplier,
+      operators,
+      owner: owner.trim() || undefined,
+      status,
+      actualStartWeek: nextActualStartWeek,
+      blockerPriority,
+      phase1Relevance: node?.phase1Relevance ?? '',
+      indRelevance: node?.indRelevance ?? '',
+      evidenceRefs: node?.evidenceRefs ?? [],
+    };
+  };
+
+  const isEmptyCreateDraft = () =>
+    !title.trim() &&
+    type === 'other' &&
+    !objective.trim() &&
+    !procedureSummary.trim() &&
+    !successCriteria.trim() &&
+    !decisionSupported.trim() &&
+    !results.trim() &&
+    !operationalNotes.trim() &&
+    cost === '0' &&
+    duration === '0' &&
+    workHoursPerWeek === '40' &&
+    parallelizationMultiplier === 1 &&
+    operators.length === 0 &&
+    !owner.trim() &&
+    status === 'planned' &&
+    !actualStartWeek.trim() &&
+    blockerPriority === 'supporting';
+
+  const handleClose = () => {
+    if (!isEditing && isEmptyCreateDraft()) {
+      closeWithoutSaving();
+      return;
+    }
+
+    const values = buildNodeValues(true);
+    if (!values) {
+      return;
+    }
+
+    onSave(values);
+    onClose();
+  };
+
+  useEffect(() => {
+    registerCloseHandler?.(handleClose);
+    return () => registerCloseHandler?.(null);
+  }, [registerCloseHandler, handleClose]);
 
   return (
     <aside className="editor" aria-label={isEditing ? 'Edit node' : 'Create node'}>
@@ -162,7 +252,12 @@ export function NodeEditor({
           <span className="editor__eyebrow">{isEditing ? 'Selected Node' : 'New Node'}</span>
           <h2>{isEditing ? 'Edit Node' : 'Add Node'}</h2>
         </div>
-        <button type="button" className="icon-button" onClick={onClose} aria-label="Close editor">
+        <button
+          type="button"
+          className="icon-button"
+          onClick={handleClose}
+          aria-label="Close editor"
+        >
           Close
         </button>
       </div>
@@ -170,7 +265,7 @@ export function NodeEditor({
       {isConnectMode && isEditing ? (
         <div className="editor__notice">
           <p>Select a target node to create a connection.</p>
-          <button type="button" className="button" onClick={onCancelConnect}>
+          <button type="button" className="button" onClick={closeWithoutSaving}>
             Cancel Connect
           </button>
         </div>
@@ -179,7 +274,7 @@ export function NodeEditor({
       {isParallelizeMode && isEditing ? (
         <div className="editor__notice">
           <p>Select an existing predecessor to toggle parallelization on that edge.</p>
-          <button type="button" className="button" onClick={onCancelConnect}>
+          <button type="button" className="button" onClick={closeWithoutSaving}>
             Cancel Parallelize
           </button>
         </div>
@@ -189,65 +284,13 @@ export function NodeEditor({
         className="editor__form"
         onSubmit={(event) => {
           event.preventDefault();
-
-          const nextTitle = title.trim();
-          if (!nextTitle) {
-            setError('Title is required.');
+          const values = buildNodeValues(true);
+          if (!values) {
             return;
           }
 
-          const nextCost = Number(cost);
-          const nextDuration = Number(duration);
-          const nextWorkHoursPerWeek = Number(workHoursPerWeek);
-          const nextActualStartWeek = actualStartWeek.trim()
-            ? Number(actualStartWeek)
-            : null;
-
-          if (
-            !Number.isFinite(nextCost) ||
-            !Number.isFinite(nextDuration) ||
-            !Number.isFinite(nextWorkHoursPerWeek)
-          ) {
-            setError('Cost, duration, and weekly work hours must be valid numbers.');
-            return;
-          }
-
-          if (nextCost < 0 || nextDuration < 0 || nextWorkHoursPerWeek < 0) {
-            setError('Cost, duration, and weekly work hours cannot be negative.');
-            return;
-          }
-
-          if (
-            nextActualStartWeek !== null &&
-            (!Number.isFinite(nextActualStartWeek) || nextActualStartWeek < 1)
-          ) {
-            setError('Actual start week must be a valid week number.');
-            return;
-          }
-
-          onSave({
-            nodeKind: 'experiment',
-            title: nextTitle,
-            type,
-            objective: objective.trim(),
-            procedureSummary: procedureSummary.trim(),
-            successCriteria: successCriteria.trim(),
-            decisionSupported: decisionSupported.trim(),
-            results: results.trim(),
-            operationalNotes: operationalNotes.trim(),
-            cost: nextCost,
-            duration: nextDuration,
-            workHoursPerWeek: nextWorkHoursPerWeek,
-            parallelizationMultiplier,
-            operators,
-            owner: owner.trim() || undefined,
-            status,
-            actualStartWeek: nextActualStartWeek,
-            blockerPriority,
-            phase1Relevance: phase1Relevance.trim(),
-            indRelevance: indRelevance.trim(),
-            evidenceRefs: splitEvidenceRefs(evidenceRefsText),
-          });
+          onSave(values);
+          onClose();
         }}
       >
         <section className="editor__section">
@@ -389,7 +432,7 @@ export function NodeEditor({
 
           <div className="editor__section-grid editor__section-grid--two">
             <label className="field">
-              <span>Work Required Per Week (hours)</span>
+              <span>Work Required Per Week (h)</span>
               <input
                 type="number"
                 step="any"
@@ -500,7 +543,7 @@ export function NodeEditor({
         <section className="editor__section">
           <div className="editor__section-header">
             <h3>Results and Evidence</h3>
-            <span>Current findings and supporting references</span>
+            <span>Current findings</span>
           </div>
           <label className="field">
             <span>Results</span>
@@ -511,54 +554,9 @@ export function NodeEditor({
               placeholder="Interim findings, observed liabilities, or final readouts."
             />
           </label>
-
-          <label className="field">
-            <span>Evidence References</span>
-            <textarea
-              value={evidenceRefsText}
-              onChange={(event) => setEvidenceRefsText(event.target.value)}
-              rows={4}
-              placeholder="One citation, dataset, or note per line"
-            />
-          </label>
-        </section>
-
-        <section className="editor__section">
-          <div className="editor__section-header">
-            <h3>Program Relevance</h3>
-            <span>Why this matters for the clinic-bound story</span>
-          </div>
-          <label className="field">
-            <span>Phase 1 Relevance</span>
-            <textarea
-              value={phase1Relevance}
-              onChange={(event) => setPhase1Relevance(event.target.value)}
-              rows={3}
-              placeholder="How this node supports the intended first-in-human design."
-            />
-          </label>
-
-          <label className="field">
-            <span>IND Relevance</span>
-            <textarea
-              value={indRelevance}
-              onChange={(event) => setIndRelevance(event.target.value)}
-              rows={3}
-              placeholder="How this node contributes to the IND story or safety narrative."
-            />
-          </label>
         </section>
 
         {error ? <p className="field-error">{error}</p> : null}
-
-        <div className="editor__actions">
-          <button type="submit" className="button button--primary">
-            {isEditing ? 'Update Node' : 'Create Node'}
-          </button>
-          <button type="button" className="button" onClick={onClose}>
-            Cancel
-          </button>
-        </div>
       </form>
 
       {isEditing ? (

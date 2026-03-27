@@ -71,4 +71,43 @@ describe('PathwayNodeEditor', () => {
       }),
     );
   });
+
+  it('saves when the editor closes and uses the simplified delete label', () => {
+    const onSave = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <PathwayNodeEditor
+        mode="edit"
+        node={node}
+        isConnectMode={false}
+        isBuilding={false}
+        buildError={null}
+        onClose={onClose}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onStartConnect={vi.fn()}
+        onCancelConnect={vi.fn()}
+        onBuild={vi.fn()}
+        onOpenExplorer={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Summary'), {
+      target: { value: 'Close-saved summary' },
+    });
+
+    expect(screen.queryByText('Update Node')).not.toBeInTheDocument();
+    expect(screen.getByText('Delete')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close editor' }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nodeKind: 'biological_pathway',
+        summary: 'Close-saved summary',
+      }),
+    );
+    expect(onClose).toHaveBeenCalled();
+  });
 });

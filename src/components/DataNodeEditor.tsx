@@ -6,6 +6,7 @@ type DataNodeEditorProps = {
   mode: EditorMode;
   node: DataNode | null;
   isConnectMode: boolean;
+  registerCloseHandler?: (handler: (() => void) | null) => void;
   onClose: () => void;
   onSave: (values: Omit<DataNode, 'id' | 'x' | 'y'>) => void;
   onDelete: () => void;
@@ -27,6 +28,7 @@ export function DataNodeEditor({
   mode,
   node,
   isConnectMode,
+  registerCloseHandler,
   onClose,
   onSave,
   onDelete,
@@ -61,6 +63,48 @@ export function DataNodeEditor({
   }
 
   const isEditing = mode === 'edit' && node;
+  const buildNodeValues = () => {
+    const nextTitle = title.trim();
+    if (!nextTitle) {
+      setError('Title is required.');
+      return null;
+    }
+
+    setError(null);
+    return {
+      nodeKind: 'data' as const,
+      title: nextTitle,
+      description: description.trim(),
+      files,
+      linkedExperimentNodeIds: node?.linkedExperimentNodeIds ?? [],
+    };
+  };
+
+  const isEmptyCreateDraft = () =>
+    !title.trim() &&
+    !description.trim() &&
+    files.length === 0;
+
+  const handleClose = () => {
+    if (!isEditing && isEmptyCreateDraft()) {
+      setError(null);
+      onClose();
+      return;
+    }
+
+    const values = buildNodeValues();
+    if (!values) {
+      return;
+    }
+
+    onSave(values);
+    onClose();
+  };
+
+  useEffect(() => {
+    registerCloseHandler?.(handleClose);
+    return () => registerCloseHandler?.(null);
+  }, [registerCloseHandler, handleClose]);
 
   return (
     <aside className="editor" aria-label={isEditing ? 'Edit data node' : 'Create data node'}>
@@ -69,7 +113,12 @@ export function DataNodeEditor({
           <span className="editor__eyebrow">{isEditing ? 'Selected Node' : 'New Node'}</span>
           <h2>{isEditing ? 'Edit Data Node' : 'Add Data Node'}</h2>
         </div>
-        <button type="button" className="icon-button" onClick={onClose} aria-label="Close editor">
+        <button
+          type="button"
+          className="icon-button"
+          onClick={handleClose}
+          aria-label="Close editor"
+        >
           Close
         </button>
       </div>
@@ -87,19 +136,13 @@ export function DataNodeEditor({
         className="editor__form"
         onSubmit={(event) => {
           event.preventDefault();
-
-          if (!title.trim()) {
-            setError('Title is required.');
+          const values = buildNodeValues();
+          if (!values) {
             return;
           }
 
-          onSave({
-            nodeKind: 'data',
-            title: title.trim(),
-            description: description.trim(),
-            files,
-            linkedExperimentNodeIds: node?.linkedExperimentNodeIds ?? [],
-          });
+          onSave(values);
+          onClose();
         }}
       >
         <section className="editor__section">
@@ -191,13 +234,10 @@ export function DataNodeEditor({
                 Connect
               </button>
               <button type="button" className="button button--ghost" onClick={onDelete}>
-                Delete Node
+                Delete
               </button>
             </div>
           ) : <span />}
-          <button type="submit" className="button button--primary">
-            {isEditing ? 'Update Node' : 'Create Node'}
-          </button>
         </div>
       </form>
     </aside>

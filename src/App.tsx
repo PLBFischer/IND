@@ -335,6 +335,9 @@ function App() {
   const viewportRefState = useRef({ x: 0, y: 0 });
   const shouldAutoCenterRef = useRef(true);
   const previousRiskAssessmentsRef = useRef<NodeRiskAssessment[]>([]);
+  const experimentEditorCloseHandlerRef = useRef<(() => void) | null>(null);
+  const pathwayEditorCloseHandlerRef = useRef<(() => void) | null>(null);
+  const dataEditorCloseHandlerRef = useRef<(() => void) | null>(null);
 
   const selectedNode = getNodeById(nodes, selectedNodeId);
   const selectedExperimentNode =
@@ -504,14 +507,13 @@ function App() {
       }
 
       if (editorMode !== 'closed') {
-        setEditorMode('closed');
-        setSelectedNodeId(null);
+        requestEditorClose();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [interactionMode, editorMode]);
+  }, [interactionMode, editorMode, requestEditorClose]);
 
   useEffect(() => {
     if (!highlightedNodeId) {
@@ -606,6 +608,29 @@ function App() {
     setSelectedNodeId(null);
   };
 
+  function requestEditorClose() {
+    const isExperimentEditorOpen = createNodeKind === 'experiment' && editorMode === 'create';
+    const isPathwayEditorOpen = createNodeKind === 'biological_pathway' && editorMode === 'create';
+    const isDataEditorOpen = createNodeKind === 'data' && editorMode === 'create';
+
+    if ((isExperimentEditorOpen || selectedExperimentNode) && experimentEditorCloseHandlerRef.current) {
+      experimentEditorCloseHandlerRef.current();
+      return;
+    }
+
+    if ((isPathwayEditorOpen || selectedPathwayNode) && pathwayEditorCloseHandlerRef.current) {
+      pathwayEditorCloseHandlerRef.current();
+      return;
+    }
+
+    if ((isDataEditorOpen || selectedDataNode) && dataEditorCloseHandlerRef.current) {
+      dataEditorCloseHandlerRef.current();
+      return;
+    }
+
+    closeEditor();
+  }
+
   const handleCanvasClick = () => {
     if (suppressedCanvasClick) {
       setSuppressedCanvasClick(false);
@@ -614,8 +639,7 @@ function App() {
 
     setSuppressedClickNodeId(null);
     setInteractionMode(null);
-    setSelectedNodeId(null);
-    setEditorMode('closed');
+    requestEditorClose();
   };
 
   const handleNodeClick = (id: string) => {
@@ -1588,6 +1612,9 @@ function App() {
             showParallelizationMultiplier={showParallelizationMultiplier}
             isConnectMode={interactionMode?.type === 'connect'}
             isParallelizeMode={interactionMode?.type === 'parallelize'}
+            registerCloseHandler={(handler) => {
+              experimentEditorCloseHandlerRef.current = handler;
+            }}
             onClose={closeEditor}
             onSave={handleSaveNode}
             onDelete={handleDeleteNode}
@@ -1601,7 +1628,6 @@ function App() {
                 setInteractionMode({ type: 'parallelize', nodeId: selectedExperimentNode.id });
               }
             }}
-            onCancelConnect={() => setInteractionMode(null)}
           />
         ) : null}
         {(createNodeKind === 'biological_pathway' && editorMode === 'create') || selectedPathwayNode ? (
@@ -1611,6 +1637,9 @@ function App() {
             isConnectMode={interactionMode?.type === 'connect'}
             isBuilding={isPathwayBuildLoading}
             buildError={pathwayBuildError}
+            registerCloseHandler={(handler) => {
+              pathwayEditorCloseHandlerRef.current = handler;
+            }}
             onClose={closeEditor}
             onSave={handleSaveNode}
             onDelete={handleDeleteNode}
@@ -1629,6 +1658,9 @@ function App() {
             mode={editorMode}
             node={selectedDataNode}
             isConnectMode={interactionMode?.type === 'connect_data_target'}
+            registerCloseHandler={(handler) => {
+              dataEditorCloseHandlerRef.current = handler;
+            }}
             onClose={closeEditor}
             onSave={handleSaveNode}
             onDelete={handleDeleteNode}

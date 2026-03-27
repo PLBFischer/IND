@@ -12,6 +12,7 @@ type PathwayNodeEditorProps = {
   isConnectMode: boolean;
   isBuilding: boolean;
   buildError: string | null;
+  registerCloseHandler?: (handler: (() => void) | null) => void;
   onClose: () => void;
   onSave: (values: Omit<BiologicalPathwayNode, 'id' | 'x' | 'y'>) => void;
   onDelete: () => void;
@@ -40,6 +41,7 @@ export function PathwayNodeEditor({
   isConnectMode,
   isBuilding,
   buildError,
+  registerCloseHandler,
   onClose,
   onSave,
   onDelete,
@@ -100,6 +102,47 @@ export function PathwayNodeEditor({
   });
 
   const isEditing = mode === 'edit' && node;
+  const hasAnyPaperSource = paperSources.some(
+    (source) => source.sourceValue.trim() || (source.label ?? '').trim(),
+  );
+  const isEmptyCreateDraft = () =>
+    !title.trim() &&
+    !summary.trim() &&
+    !focusTermsText.trim() &&
+    !hasAnyPaperSource;
+  const validateBeforeSave = () => {
+    if (!title.trim()) {
+      setError('Title is required.');
+      return false;
+    }
+
+    if (!paperSources.some((source) => source.sourceValue.trim())) {
+      setError('Add at least one paper source or raw text block.');
+      return false;
+    }
+
+    setError(null);
+    return true;
+  };
+  const handleClose = () => {
+    if (!isEditing && isEmptyCreateDraft()) {
+      setError(null);
+      onClose();
+      return;
+    }
+
+    if (!validateBeforeSave()) {
+      return;
+    }
+
+    onSave(baseValues());
+    onClose();
+  };
+
+  useEffect(() => {
+    registerCloseHandler?.(handleClose);
+    return () => registerCloseHandler?.(null);
+  }, [registerCloseHandler, handleClose]);
 
   return (
     <aside className="editor" aria-label={isEditing ? 'Edit pathway node' : 'Create pathway node'}>
@@ -108,7 +151,12 @@ export function PathwayNodeEditor({
           <span className="editor__eyebrow">{isEditing ? 'Selected Node' : 'New Node'}</span>
           <h2>{isEditing ? 'Edit Pathway Node' : 'Add Pathway Node'}</h2>
         </div>
-        <button type="button" className="icon-button" onClick={onClose} aria-label="Close editor">
+        <button
+          type="button"
+          className="icon-button"
+          onClick={handleClose}
+          aria-label="Close editor"
+        >
           Close
         </button>
       </div>
@@ -126,17 +174,12 @@ export function PathwayNodeEditor({
         className="editor__form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!title.trim()) {
-            setError('Title is required.');
-            return;
-          }
-
-          if (!paperSources.some((source) => source.sourceValue.trim())) {
-            setError('Add at least one paper source or raw text block.');
+          if (!validateBeforeSave()) {
             return;
           }
 
           onSave(baseValues());
+          onClose();
         }}
       >
         <section className="editor__section">
@@ -307,13 +350,10 @@ export function PathwayNodeEditor({
                 Connect
               </button>
               <button type="button" className="button button--ghost" onClick={onDelete}>
-                Delete Node
+                Delete
               </button>
             </div>
           ) : <span />}
-          <button type="submit" className="button button--primary">
-            {isEditing ? 'Update Node' : 'Create Node'}
-          </button>
         </div>
       </form>
     </aside>

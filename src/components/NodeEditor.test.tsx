@@ -46,8 +46,9 @@ const riskAssessment: NodeRiskAssessment = {
 };
 
 describe('NodeEditor', () => {
-  it('renders scientific and operational risk summary and saves the richer schema', () => {
+  it('renders scientific risk details and saves changes when the editor closes', () => {
     const onSave = vi.fn();
+    const onClose = vi.fn();
 
     render(
       <NodeEditor
@@ -60,12 +61,11 @@ describe('NodeEditor', () => {
         showParallelizationMultiplier
         isConnectMode={false}
         isParallelizeMode={false}
-        onClose={vi.fn()}
+        onClose={onClose}
         onSave={onSave}
         onDelete={vi.fn()}
         onStartConnect={vi.fn()}
         onStartParallelize={vi.fn()}
-        onCancelConnect={vi.fn()}
       />,
     );
 
@@ -79,20 +79,24 @@ describe('NodeEditor', () => {
     fireEvent.change(screen.getByLabelText('Status'), {
       target: { value: 'blocked' },
     });
-    fireEvent.change(screen.getByLabelText('Evidence References'), {
-      target: { value: 'Memo A\nMemo B' },
-    });
 
-    fireEvent.click(screen.getByText('Update Node'));
+    expect(screen.queryByLabelText('Evidence References')).not.toBeInTheDocument();
+    expect(screen.queryByText('Program Relevance')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Work Required Per Week (h)')).toBeInTheDocument();
+    expect(screen.queryByText('Update Node')).not.toBeInTheDocument();
+    expect(screen.queryByText('Cancel')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close editor' }));
 
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
         nodeKind: 'experiment',
         objective: 'Updated objective',
         status: 'blocked',
-        evidenceRefs: ['Memo A', 'Memo B'],
+        evidenceRefs: ['Study memo 001'],
         blockerPriority: 'critical',
       }),
     );
+    expect(onClose).toHaveBeenCalled();
   });
 });
