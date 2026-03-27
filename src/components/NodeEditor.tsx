@@ -14,6 +14,7 @@ import {
   NODE_TYPE_OPTIONS,
 } from '../types/graph';
 import { isActiveNodeStatus } from '../utils/graph';
+import { formatCurrencyMetric, formatMetric } from '../utils/metrics';
 
 type NodeEditorProps = {
   mode: EditorMode;
@@ -582,18 +583,17 @@ export function NodeEditor({
                       <span>Operational Risk</span>
                       <strong>{riskAssessment.executionRisk}</strong>
                     </div>
+                    <div>
+                      <span>Duration Change</span>
+                      <strong>+{formatMetric(riskAssessment.estimatedDurationChange ?? 0)} weeks</strong>
+                    </div>
+                    <div>
+                      <span>Cost Change</span>
+                      <strong>+${formatCurrencyMetric(riskAssessment.estimatedCostChange ?? 0)}</strong>
+                    </div>
                   </div>
-                  <p className="editor__risk-text">{riskAssessment.summary}</p>
-                  {riskAssessment.keyAssumptions.length > 0 ? (
-                    <p className="editor__risk-text">
-                      Assumptions: {riskAssessment.keyAssumptions.join(' | ')}
-                    </p>
-                  ) : null}
-                  {riskAssessment.affectedClaims.length > 0 ? (
-                    <p className="editor__risk-text">
-                      Affected claims: {riskAssessment.affectedClaims.join(' | ')}
-                    </p>
-                  ) : null}
+                  <p className="editor__risk-text">{riskAssessment.mainRisk}</p>
+                  <p className="editor__risk-text">{riskAssessment.impactExplanation}</p>
                   {riskAssessment.changeSummary ? (
                     <p className="editor__risk-change">{riskAssessment.changeSummary}</p>
                   ) : null}

@@ -35,7 +35,10 @@ const riskAssessment: NodeRiskAssessment = {
   executionRisk: 'Low',
   overallRisk: 'Medium',
   fragility: 'High',
-  summary: 'Exposure is important to the clinic-bound story but still weakly supported.',
+  mainRisk: 'Exposure is important to the clinic-bound story, but the current signal may fail replication and force a repeat PK run.',
+  impactExplanation: 'If the current exposure signal does not hold up, the team would need to rerun the PK study, which adds roughly one full study cycle and repeats most of the external spend.',
+  estimatedCostChange: 52000,
+  estimatedDurationChange: 4,
   scientificDrivers: ['Exposure margin still needs confirmation.'],
   executionDrivers: ['Vendor slot exists, but there is limited slack.'],
   fragilityDrivers: ['A slip would delay downstream decisions.'],
@@ -71,7 +74,18 @@ describe('NodeEditor', () => {
 
     expect(screen.getByText('Scientific and Operational Risk')).toBeInTheDocument();
     expect(screen.getByText('Operational Risk')).toBeInTheDocument();
-    expect(screen.getByText(/Affected claims:/)).toBeInTheDocument();
+    expect(screen.getByText('Duration Change')).toBeInTheDocument();
+    expect(screen.getByText('Cost Change')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Exposure is important to the clinic-bound story, but the current signal may fail replication and force a repeat PK run.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'If the current exposure signal does not hold up, the team would need to rerun the PK study, which adds roughly one full study cycle and repeats most of the external spend.',
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Objective'), {
       target: { value: 'Updated objective' },

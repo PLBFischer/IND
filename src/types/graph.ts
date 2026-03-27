@@ -222,7 +222,10 @@ export type NodeRiskAssessment = {
   executionRisk: RiskLevel;
   overallRisk: RiskLevel;
   fragility: RiskLevel;
-  summary: string;
+  mainRisk: string;
+  impactExplanation: string;
+  estimatedCostChange: number;
+  estimatedDurationChange: number;
   scientificDrivers: string[];
   executionDrivers: string[];
   fragilityDrivers: string[];

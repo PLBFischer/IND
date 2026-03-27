@@ -298,7 +298,10 @@ class NodeRiskAssessment(BaseModel):
     executionRisk: RiskLevel
     overallRisk: RiskLevel
     fragility: RiskLevel
-    summary: str
+    mainRisk: str
+    impactExplanation: str
+    estimatedCostChange: float = 0
+    estimatedDurationChange: float = 0
     scientificDrivers: list[str] = Field(default_factory=list)
     executionDrivers: list[str] = Field(default_factory=list)
     fragilityDrivers: list[str] = Field(default_factory=list)
@@ -1205,6 +1208,15 @@ def score_risks_with_llm(payload: RiskScanRequest) -> RiskScanResponse:
                 "Overall risk means the combined bottom-line assessment after considering scientific risk, operational risk, and the node's role in the program. "
                 "Fragility means program-level impact if the node slips or fails, including critical path disruption, downstream dependency depth, rework cascades, replaceability, and hedgeability through parallelization. "
                 "Use the graph snapshot, program context, and derived schedule as the source of truth for program structure. "
+                "Treat a non-parallelized edge as completion dependency: the target depends on the source finishing. "
+                "Treat a parallelized edge as start dependency: the target may begin once the source has started. "
+                "For each node, write a short free-form mainRisk field that states the main risk and why it matters. "
+                "When assumptions or affected program claims materially matter, weave them naturally into mainRisk instead of using labels or bullet-like phrasing. "
+                "Do not force that text into a template or labeled format. "
+                "Also write a short free-form impactExplanation field that explains the failure scenario behind the estimated duration and cost changes. "
+                "State what likely goes wrong, what extra work or waiting it causes, and why that leads to the stated additional weeks and USD. "
+                "Also estimate estimatedCostChange and estimatedDurationChange as the additional cost in USD and additional duration in weeks if the main risk scenario actually happens. "
+                "Estimate the incremental impact, not the total node cost or duration unless full repetition or full delay is the most plausible failure mode. "
                 "Be concise but specific. Avoid boilerplate. "
                 "Provide recommendations whenever overall risk or fragility is Medium or higher. "
                 "List key assumptions and affected program claims whenever they materially shape the assessment. "
@@ -1254,7 +1266,16 @@ def score_risks_with_llm(payload: RiskScanRequest) -> RiskScanResponse:
                                             "type": "string",
                                             "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
                                         },
-                                        "summary": {"type": "string"},
+                                        "mainRisk": {"type": "string"},
+                                        "impactExplanation": {"type": "string"},
+                                        "estimatedCostChange": {
+                                            "type": "number",
+                                            "minimum": 0,
+                                        },
+                                        "estimatedDurationChange": {
+                                            "type": "number",
+                                            "minimum": 0,
+                                        },
                                         "scientificDrivers": {
                                             "type": "array",
                                             "items": {"type": "string"},
@@ -1318,7 +1339,10 @@ def score_risks_with_llm(payload: RiskScanRequest) -> RiskScanResponse:
                                         "executionRisk",
                                         "overallRisk",
                                         "fragility",
-                                        "summary",
+                                        "mainRisk",
+                                        "impactExplanation",
+                                        "estimatedCostChange",
+                                        "estimatedDurationChange",
                                         "scientificDrivers",
                                         "executionDrivers",
                                         "fragilityDrivers",
