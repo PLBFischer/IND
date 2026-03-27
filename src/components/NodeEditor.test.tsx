@@ -33,24 +33,20 @@ const riskAssessment: NodeRiskAssessment = {
   nodeId: 'node_pk',
   scientificRisk: 'Medium',
   executionRisk: 'Low',
-  regulatoryRisk: 'Low',
-  coherenceRisk: 'High',
   overallRisk: 'Medium',
   fragility: 'High',
   summary: 'Exposure is important to the clinic-bound story but still weakly supported.',
   scientificDrivers: ['Exposure margin still needs confirmation.'],
   executionDrivers: ['Vendor slot exists, but there is limited slack.'],
-  regulatoryDrivers: ['No major regulatory issue is obvious yet.'],
-  coherenceDrivers: ['The Phase 1 design assumes CNS exposure support.'],
   fragilityDrivers: ['A slip would delay downstream decisions.'],
   recommendations: [],
   keyAssumptions: ['Rodent exposure is directionally predictive enough for the current plan.'],
   affectedClaims: ['Supports brain penetration claim.'],
-  changeSummary: 'Coherence risk increased after the Phase 1 design tightened.',
+  changeSummary: 'Program risk increased after the Phase 1 design tightened.',
 };
 
 describe('NodeEditor', () => {
-  it('renders coherence-aware risk summary and saves the richer schema', () => {
+  it('renders scientific and operational risk summary and saves the richer schema', () => {
     const onSave = vi.fn();
 
     render(
@@ -73,8 +69,8 @@ describe('NodeEditor', () => {
       />,
     );
 
-    expect(screen.getByText('Risk, Fragility, and Coherence')).toBeInTheDocument();
-    expect(screen.getByText('Coherence')).toBeInTheDocument();
+    expect(screen.getByText('Scientific and Operational Risk')).toBeInTheDocument();
+    expect(screen.getByText('Operational Risk')).toBeInTheDocument();
     expect(screen.getByText(/Affected claims:/)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Objective'), {

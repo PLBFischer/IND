@@ -383,7 +383,7 @@ function App() {
         assessment.nodeId,
         {
           level: warningLevel,
-          label: `Overall risk ${assessment.overallRisk}; coherence ${assessment.coherenceRisk}; fragility ${assessment.fragility}`,
+          label: 'This node is flagged as high priority based on combined program risk.',
         },
       ]];
     }),

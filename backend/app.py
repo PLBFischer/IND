@@ -284,8 +284,6 @@ class RiskRecommendation(BaseModel):
     targetRiskDimension: Literal[
         "scientific",
         "execution",
-        "regulatory",
-        "coherence",
         "fragility",
         "cross_cutting",
     ]
@@ -298,15 +296,11 @@ class NodeRiskAssessment(BaseModel):
     nodeId: str
     scientificRisk: RiskLevel
     executionRisk: RiskLevel
-    regulatoryRisk: RiskLevel
-    coherenceRisk: RiskLevel
     overallRisk: RiskLevel
     fragility: RiskLevel
     summary: str
     scientificDrivers: list[str] = Field(default_factory=list)
     executionDrivers: list[str] = Field(default_factory=list)
-    regulatoryDrivers: list[str] = Field(default_factory=list)
-    coherenceDrivers: list[str] = Field(default_factory=list)
     fragilityDrivers: list[str] = Field(default_factory=list)
     recommendations: list[RiskRecommendation] = Field(default_factory=list)
     keyAssumptions: list[str] = Field(default_factory=list)
@@ -1206,16 +1200,17 @@ def score_risks_with_llm(payload: RiskScanRequest) -> RiskScanResponse:
         response = client.responses.create(
             model=os.getenv("OPENAI_RISK_MODEL", "gpt-5.4-2026-03-05"),
             instructions=(
-                "You evaluate preclinical program experiments for first-pass risk, Phase 1 / IND coherence risk, and program fragility. "
-                "Follow this policy strictly: score each active node on scientific risk, execution risk, regulatory risk, coherence risk, overall risk, and fragility. "
+                "You evaluate preclinical program experiments for first-pass scientific risk, operational risk, overall risk, and program fragility. "
+                "Follow this policy strictly: score each active node on scientific risk, execution risk, overall risk, and fragility. "
                 "Use exactly these buckets: Very Low, Low, Medium, High, Very High. "
                 "Do not use numeric probabilities. "
-                "Risk means likelihood of failure, repetition, redesign, delay, or added cost. "
-                "Coherence risk means likelihood that the node, its absence, its delay, or its current results undermine the intended Phase 1 design or IND story. "
+                "Scientific risk means likelihood that the experiment fails to produce a scientifically reliable or decision-useful result, including when the premise or design of the experiment is weakened or contradicted by results from other experiments in the graph. "
+                "Execution risk means operational risk: likelihood of delay, failed execution, repetition, redesign, resourcing friction, or added cost during execution. "
+                "Overall risk means the combined bottom-line assessment after considering scientific risk, operational risk, and the node's role in the program. "
                 "Fragility means program-level impact if the node slips or fails, including critical path disruption, downstream dependency depth, rework cascades, replaceability, and hedgeability through parallelization. "
                 "Use the graph snapshot, program context, and derived schedule as the source of truth for program structure. "
                 "Be concise but specific. Avoid boilerplate. "
-                "Provide recommendations whenever overall risk, coherence risk, or fragility is Medium or higher. "
+                "Provide recommendations whenever overall risk or fragility is Medium or higher. "
                 "List key assumptions and affected program claims whenever they materially shape the assessment. "
                 "When previous assessments are provided, include a short changeSummary that explains what changed and why; otherwise leave changeSummary empty. "
                 "Do not score terminal nodes. "
@@ -1255,14 +1250,6 @@ def score_risks_with_llm(payload: RiskScanRequest) -> RiskScanResponse:
                                             "type": "string",
                                             "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
                                         },
-                                        "regulatoryRisk": {
-                                            "type": "string",
-                                            "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
-                                        },
-                                        "coherenceRisk": {
-                                            "type": "string",
-                                            "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
-                                        },
                                         "overallRisk": {
                                             "type": "string",
                                             "enum": ["Very Low", "Low", "Medium", "High", "Very High"],
@@ -1277,14 +1264,6 @@ def score_risks_with_llm(payload: RiskScanRequest) -> RiskScanResponse:
                                             "items": {"type": "string"},
                                         },
                                         "executionDrivers": {
-                                            "type": "array",
-                                            "items": {"type": "string"},
-                                        },
-                                        "regulatoryDrivers": {
-                                            "type": "array",
-                                            "items": {"type": "string"},
-                                        },
-                                        "coherenceDrivers": {
                                             "type": "array",
                                             "items": {"type": "string"},
                                         },
@@ -1304,8 +1283,6 @@ def score_risks_with_llm(payload: RiskScanRequest) -> RiskScanResponse:
                                                         "enum": [
                                                             "scientific",
                                                             "execution",
-                                                            "regulatory",
-                                                            "coherence",
                                                             "fragility",
                                                             "cross_cutting",
                                                         ],
@@ -1343,15 +1320,11 @@ def score_risks_with_llm(payload: RiskScanRequest) -> RiskScanResponse:
                                         "nodeId",
                                         "scientificRisk",
                                         "executionRisk",
-                                        "regulatoryRisk",
-                                        "coherenceRisk",
                                         "overallRisk",
                                         "fragility",
                                         "summary",
                                         "scientificDrivers",
                                         "executionDrivers",
-                                        "regulatoryDrivers",
-                                        "coherenceDrivers",
                                         "fragilityDrivers",
                                         "recommendations",
                                         "keyAssumptions",

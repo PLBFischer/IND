@@ -193,8 +193,6 @@ export type RiskRecommendation = {
   targetRiskDimension:
     | 'scientific'
     | 'execution'
-    | 'regulatory'
-    | 'coherence'
     | 'fragility'
     | 'cross_cutting';
   expectedEffect: string;
@@ -206,15 +204,11 @@ export type NodeRiskAssessment = {
   nodeId: string;
   scientificRisk: RiskLevel;
   executionRisk: RiskLevel;
-  regulatoryRisk: RiskLevel;
-  coherenceRisk: RiskLevel;
   overallRisk: RiskLevel;
   fragility: RiskLevel;
   summary: string;
   scientificDrivers: string[];
   executionDrivers: string[];
-  regulatoryDrivers: string[];
-  coherenceDrivers: string[];
   fragilityDrivers: string[];
   recommendations: RiskRecommendation[];
   keyAssumptions: string[];

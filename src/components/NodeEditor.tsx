@@ -568,7 +568,7 @@ export function NodeEditor({
               <div className="editor__risk-header">
                 <div>
                   <span className="editor__eyebrow">Risk Snapshot</span>
-                  <h3>Risk, Fragility, and Coherence</h3>
+                  <h3>Scientific and Operational Risk</h3>
                 </div>
               </div>
               {isRiskLoading ? <p className="editor__risk-text">Refreshing risk scores.</p> : null}
@@ -577,28 +577,12 @@ export function NodeEditor({
                 <>
                   <div className="editor__risk-grid">
                     <div>
-                      <span>Overall Risk</span>
-                      <strong>{riskAssessment.overallRisk}</strong>
-                    </div>
-                    <div>
-                      <span>Coherence</span>
-                      <strong>{riskAssessment.coherenceRisk}</strong>
-                    </div>
-                    <div>
-                      <span>Fragility</span>
-                      <strong>{riskAssessment.fragility}</strong>
-                    </div>
-                    <div>
-                      <span>Scientific</span>
+                      <span>Scientific Risk</span>
                       <strong>{riskAssessment.scientificRisk}</strong>
                     </div>
                     <div>
-                      <span>Execution</span>
+                      <span>Operational Risk</span>
                       <strong>{riskAssessment.executionRisk}</strong>
-                    </div>
-                    <div>
-                      <span>Regulatory</span>
-                      <strong>{riskAssessment.regulatoryRisk}</strong>
                     </div>
                   </div>
                   <p className="editor__risk-text">{riskAssessment.summary}</p>
@@ -621,7 +605,7 @@ export function NodeEditor({
           ) : (
             <div className="editor__risk-summary">
               <p className="editor__risk-text">
-                Deep reasoning is only available for nodes that are still active in the plan.
+                Risk snapshots are only available for nodes that are still active in the plan.
               </p>
             </div>
           )}

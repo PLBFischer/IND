@@ -152,22 +152,18 @@ def test_chat_context_includes_program_context_and_relevance_fields() -> None:
     assert context["nodes"][0]["ind_relevance"] == "Feeds IND story"
 
 
-def test_risk_scan_validation_requires_coherence_risk() -> None:
+def test_risk_scan_validation_requires_overall_risk() -> None:
     valid_payload = {
         "assessments": [
             {
                 "nodeId": "pk_node",
                 "scientificRisk": "Medium",
                 "executionRisk": "Low",
-                "regulatoryRisk": "Low",
-                "coherenceRisk": "High",
                 "overallRisk": "Medium",
                 "fragility": "High",
                 "summary": "Summary",
                 "scientificDrivers": [],
                 "executionDrivers": [],
-                "regulatoryDrivers": [],
-                "coherenceDrivers": [],
                 "fragilityDrivers": [],
                 "recommendations": [],
                 "keyAssumptions": [],
@@ -178,7 +174,7 @@ def test_risk_scan_validation_requires_coherence_risk() -> None:
     }
 
     parsed = RiskScanResponse.model_validate(valid_payload)
-    assert parsed.assessments[0].coherenceRisk == "High"
+    assert parsed.assessments[0].overallRisk == "Medium"
 
     invalid_payload = {
         "assessments": [
@@ -187,7 +183,7 @@ def test_risk_scan_validation_requires_coherence_risk() -> None:
             }
         ]
     }
-    invalid_payload["assessments"][0].pop("coherenceRisk")
+    invalid_payload["assessments"][0].pop("overallRisk")
 
     with pytest.raises(ValidationError):
         RiskScanResponse.model_validate(invalid_payload)
