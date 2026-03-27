@@ -8,7 +8,6 @@ from backend.app import (
     ChatRequest,
     EvidenceChoice,
     GraphPayload,
-    ReviewChoice,
     RiskScanResponse,
     apply_duplicate_entity_merges,
     apply_pathway_admission_policy,
@@ -194,24 +193,7 @@ def test_risk_scan_validation_requires_coherence_risk() -> None:
         RiskScanResponse.model_validate(invalid_payload)
 
 
-def test_review_and_evidence_structured_outputs_validate() -> None:
-    review_choice = ReviewChoice.model_validate(
-        {
-            "findings": [
-                {
-                    "id": "finding_1",
-                    "severity": "high",
-                    "type": "missing_critical_evidence",
-                    "summary": "Missing exposure support",
-                    "details": "The clinic-bound story still lacks confirmed exposure support.",
-                    "suggestedAction": "Run the exposure study before locking the next package.",
-                    "nodeIds": ["pk_node"],
-                }
-            ]
-        }
-    )
-    assert review_choice.findings[0].type == "missing_critical_evidence"
-
+def test_evidence_structured_outputs_validate() -> None:
     evidence_choice = EvidenceChoice.model_validate(
         {
             "answer": "The graph has one directly relevant exposure node.",

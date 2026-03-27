@@ -8,7 +8,6 @@ import { NodeEditor } from './components/NodeEditor';
 import { PathwayNodeEditor } from './components/PathwayNodeEditor';
 import { PathwayPanel } from './components/PathwayPanel';
 import { ProgramContextPanel } from './components/ProgramContextPanel';
-import { ReviewPanel } from './components/ReviewPanel';
 import { TimelinePanel } from './components/TimelinePanel';
 import { Toolbar } from './components/Toolbar';
 import {
@@ -32,8 +31,6 @@ import type {
   Personnel,
   ProgramContext,
   RiskScanResponse,
-  ReviewFinding,
-  ReviewResponse,
   ScheduleResult,
 } from './types/graph';
 import {
@@ -301,10 +298,6 @@ function App() {
   );
   const [isEvidenceLoading, setIsEvidenceLoading] = useState(false);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
-  const [isReviewOpen, setIsReviewOpen] = useState(false);
-  const [isReviewLoading, setIsReviewLoading] = useState(false);
-  const [reviewError, setReviewError] = useState<string | null>(null);
-  const [reviewFindings, setReviewFindings] = useState<ReviewFinding[]>([]);
   const [riskAssessments, setRiskAssessments] = useState<NodeRiskAssessment[]>([]);
   const [isRiskLoading, setIsRiskLoading] = useState(false);
   const [riskError, setRiskError] = useState<string | null>(null);
@@ -327,7 +320,6 @@ function App() {
   const scheduleRequestIdRef = useRef(0);
   const accelerateAbortRef = useRef<AbortController | null>(null);
   const evidenceAbortRef = useRef<AbortController | null>(null);
-  const reviewAbortRef = useRef<AbortController | null>(null);
   const riskAbortRef = useRef<AbortController | null>(null);
   const deepRiskAbortRef = useRef<AbortController | null>(null);
   const zoomRef = useRef(1);
@@ -1115,50 +1107,6 @@ function App() {
     }
   };
 
-  const requestReview = async () => {
-    reviewAbortRef.current?.abort();
-    const controller = new AbortController();
-    reviewAbortRef.current = controller;
-    setIsReviewLoading(true);
-    setReviewError(null);
-    setIsReviewOpen(true);
-
-    try {
-      const response = await fetch(`${SCHEDULER_API_BASE}/review`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          graph: analysisGraph,
-          schedule,
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error(await getResponseErrorMessage(response, 'Review could not analyze the graph.'));
-      }
-
-      const payload = (await response.json()) as ReviewResponse;
-      setReviewFindings(payload.findings);
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return;
-      }
-
-      setReviewFindings([]);
-      setReviewError(
-        error instanceof Error ? error.message : 'Review could not analyze the graph.',
-      );
-    } finally {
-      if (reviewAbortRef.current === controller) {
-        reviewAbortRef.current = null;
-      }
-      setIsReviewLoading(false);
-    }
-  };
-
   const requestRiskScan = async (
     previousAssessments: NodeRiskAssessment[] = previousRiskAssessmentsRef.current,
   ) => {
@@ -1498,12 +1446,6 @@ function App() {
     setEvidenceResponse(null);
     setIsEvidenceLoading(false);
     setEvidenceError(null);
-    reviewAbortRef.current?.abort();
-    reviewAbortRef.current = null;
-    setIsReviewOpen(false);
-    setIsReviewLoading(false);
-    setReviewError(null);
-    setReviewFindings([]);
     riskAbortRef.current?.abort();
     riskAbortRef.current = null;
     setRiskAssessments([]);
@@ -1584,8 +1526,6 @@ function App() {
         isAccelerating={isAccelerating || Boolean(accelerateProposal || accelerateError || accelerateStopReason)}
         canAccelerate={canAccelerate}
         isEvidenceOpen={isEvidenceOpen}
-        isReviewOpen={isReviewOpen}
-        isReviewing={isReviewLoading}
         isTimelineOpen={isTimelineOpen}
         onAssign={handleAssign}
         onAccelerate={handleAccelerate}
@@ -1601,18 +1541,6 @@ function App() {
 
           setEvidenceError(null);
           setIsEvidenceOpen(true);
-        }}
-        onToggleReview={() => {
-          if (isReviewOpen) {
-            reviewAbortRef.current?.abort();
-            reviewAbortRef.current = null;
-            setIsReviewLoading(false);
-            setReviewError(null);
-            setIsReviewOpen(false);
-            return;
-          }
-
-          void requestReview();
         }}
         onToggleTimeline={handleToggleTimeline}
         onAddExperimentNode={() => openCreateEditor('experiment')}
@@ -1738,24 +1666,6 @@ function App() {
           onQueryChange={setEvidenceQuery}
           onSubmit={() => {
             void requestEvidenceQuery();
-          }}
-          onReferenceClick={handleChatReferenceClick}
-        />
-        <ReviewPanel
-          isOpen={isReviewOpen}
-          isLoading={isReviewLoading}
-          error={reviewError}
-          findings={reviewFindings}
-          nodes={nodes}
-          onClose={() => {
-            reviewAbortRef.current?.abort();
-            reviewAbortRef.current = null;
-            setIsReviewLoading(false);
-            setReviewError(null);
-            setIsReviewOpen(false);
-          }}
-          onRefresh={() => {
-            void requestReview();
           }}
           onReferenceClick={handleChatReferenceClick}
         />

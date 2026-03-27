@@ -398,42 +398,6 @@ class ChatChoice(BaseModel):
     referenced_node_ids: list[str] = Field(default_factory=list)
 
 
-class ReviewRequest(BaseModel):
-    graph: GraphPayload
-    schedule: ScheduleResponse | None = None
-
-
-class ReviewFinding(BaseModel):
-    id: str
-    severity: Literal["high", "medium", "low"]
-    type: Literal[
-        "contradiction",
-        "outdated_description",
-        "redundancy",
-        "instrumentation_risk",
-        "dependency_mismatch",
-        "phase1_ind_inconsistency",
-        "missing_critical_evidence",
-        "blocker_priority_mismatch",
-        "orphaned_experiment",
-        "wasted_spend",
-        "stale_results_assumption",
-        "other",
-    ]
-    summary: str
-    details: str
-    suggestedAction: str
-    nodeIds: list[str] = Field(default_factory=list)
-
-
-class ReviewResponse(BaseModel):
-    findings: list[ReviewFinding] = Field(default_factory=list)
-
-
-class ReviewChoice(BaseModel):
-    findings: list[ReviewFinding] = Field(default_factory=list)
-
-
 class EvidenceQueryRequest(BaseModel):
     query: str = Field(min_length=1)
     graph: GraphPayload
@@ -1828,138 +1792,6 @@ def answer_chat_with_llm(payload: ChatRequest) -> ChatResponse:
             referencedNodeIds=referenced_node_ids,
         )
     )
-
-
-def review_graph_with_llm(payload: ReviewRequest) -> ReviewResponse:
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise HTTPException(
-            status_code=400,
-            detail="Review requires OPENAI_API_KEY to be set on the backend.",
-        )
-
-    client = OpenAI(api_key=api_key)
-    node_ids = {node.id for node in get_experiment_nodes(payload.graph)}
-
-    try:
-        response = client.responses.create(
-            model=os.getenv("OPENAI_REVIEW_MODEL", "gpt-5.4-2026-03-05"),
-            instructions=(
-                "You are reviewing a translational R&D experiment graph for contradictions, outdated downstream assumptions, redundancies, instrumentation risks, dependency mismatches, Phase 1 / IND inconsistencies, missing critical evidence, blocker-priority mismatches, orphaned experiments, wasted spend, and stale results assumptions. "
-                "Use the current graph snapshot as the sole source of truth for claims about the user's actual program. "
-                "Read the objective, procedure summary, decision supported, results, and program-relevance fields for every node. "
-                "Do not limit yourself to completed nodes: intermediate results in ongoing nodes can also invalidate future plans. "
-                "Identify cases where results from one node suggest that another node's plan should be updated, reconsidered, split, deprioritized, or removed. "
-                "Use the target Phase 1 design, target IND strategy, graph topology, and schedule context when deciding whether work is aligned or wasted. "
-                "Focus on high-signal findings rather than exhaustive commentary. Keep each finding concise. "
-                "Do not invent scientific results that are not in the graph. "
-                "Do not write raw node IDs in the prose fields; keep node references only in nodeIds. "
-                "Return at most 8 findings, ordered from most important to least important."
-            ),
-            input=json.dumps(
-                {
-                    "graph_context": build_chat_graph_context(
-                        ChatRequest(messages=[], graph=payload.graph, schedule=payload.schedule)
-                    )
-                }
-            ),
-            max_output_tokens=2400,
-            temperature=0.2,
-            store=False,
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "graph_review",
-                    "strict": True,
-                    "schema": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": {
-                            "findings": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "additionalProperties": False,
-                                    "properties": {
-                                        "id": {"type": "string"},
-                                        "severity": {
-                                            "type": "string",
-                                            "enum": ["high", "medium", "low"],
-                                        },
-                                        "type": {
-                                            "type": "string",
-                                            "enum": [
-                                                "contradiction",
-                                                "outdated_description",
-                                                "redundancy",
-                                                "instrumentation_risk",
-                                                "dependency_mismatch",
-                                                "phase1_ind_inconsistency",
-                                                "missing_critical_evidence",
-                                                "blocker_priority_mismatch",
-                                                "orphaned_experiment",
-                                                "wasted_spend",
-                                                "stale_results_assumption",
-                                                "other",
-                                            ],
-                                        },
-                                        "summary": {"type": "string"},
-                                        "details": {"type": "string"},
-                                        "suggestedAction": {"type": "string"},
-                                        "nodeIds": {
-                                            "type": "array",
-                                            "items": {"type": "string"},
-                                        },
-                                    },
-                                    "required": [
-                                        "id",
-                                        "severity",
-                                        "type",
-                                        "summary",
-                                        "details",
-                                        "suggestedAction",
-                                        "nodeIds",
-                                    ],
-                                },
-                            }
-                        },
-                        "required": ["findings"],
-                    },
-                },
-                "verbosity": "low",
-            },
-        )
-    except AuthenticationError as error:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Review could not authenticate with OpenAI: {error}",
-        ) from error
-    except APIError as error:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Review failed while calling OpenAI: {error}",
-        ) from error
-
-    try:
-        choice = ReviewChoice.model_validate_json(response.output_text)
-    except PydanticValidationError as error:
-        raise HTTPException(
-            status_code=502,
-            detail="Review produced an incomplete response. Please run Review again.",
-        ) from error
-    findings = [
-        ReviewFinding(
-            id=finding.id,
-            severity=finding.severity,
-            type=finding.type,
-            summary=finding.summary,
-            details=finding.details,
-            suggestedAction=finding.suggestedAction,
-            nodeIds=[node_id for node_id in finding.nodeIds if node_id in node_ids],
-        )
-        for finding in choice.findings
-    ]
-    return ReviewResponse(findings=findings)
 
 
 def answer_evidence_query_with_llm(payload: EvidenceQueryRequest) -> EvidenceQueryResponse:
@@ -4202,11 +4034,6 @@ def risk_deep(payload: DeepRiskRequest) -> DeepRiskResponse:
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest) -> ChatResponse:
     return answer_chat_with_llm(payload)
-
-
-@app.post("/api/review", response_model=ReviewResponse)
-def review(payload: ReviewRequest) -> ReviewResponse:
-    return review_graph_with_llm(payload)
 
 
 @app.post("/api/evidence/query", response_model=EvidenceQueryResponse)

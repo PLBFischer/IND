@@ -286,32 +286,6 @@ export type ChatResponse = {
   message: ChatMessage;
 };
 
-export type ReviewFinding = {
-  id: string;
-  severity: 'high' | 'medium' | 'low';
-  type:
-    | 'contradiction'
-    | 'outdated_description'
-    | 'redundancy'
-    | 'instrumentation_risk'
-    | 'dependency_mismatch'
-    | 'phase1_ind_inconsistency'
-    | 'missing_critical_evidence'
-    | 'blocker_priority_mismatch'
-    | 'orphaned_experiment'
-    | 'wasted_spend'
-    | 'stale_results_assumption'
-    | 'other';
-  summary: string;
-  details: string;
-  suggestedAction: string;
-  nodeIds: string[];
-};
-
-export type ReviewResponse = {
-  findings: ReviewFinding[];
-};
-
 export type EvidenceReference = {
   nodeId: string;
   field: string;
