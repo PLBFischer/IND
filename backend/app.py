@@ -1234,6 +1234,8 @@ def score_risks_with_llm(payload: RiskScanRequest) -> RiskScanResponse:
                 "Use the graph snapshot, program context, and derived schedule as the source of truth for program structure. "
                 "Use graph_context.nodes as the primary source for each node's scientific intent, procedure, success criteria, decisions supported, results, and operational notes. "
                 "Use graph_context.risk_focus_nodes as the primary source for dependency depth, downstream impact, program relevance, and critical-path fragility. "
+                "In graph_context.risk_focus_nodes, depth means the longest upstream dependency distance from a root experiment, downstream_dependency_count means the number of reachable downstream experiments that depend on the node, critical_path_terminal means the node finishes on the active path that defines the current makespan, and program_relevance_score is a backend-derived importance score based on the node's program-facing relevance fields. "
+                "In graph_context.nodes, effective_multiplier means the node's current parallelization multiplier after applying graph edge state. "
                 "Treat a non-parallelized edge as completion dependency: the target depends on the source finishing. "
                 "Treat a parallelized edge as start dependency: the target may begin once the source has started. "
                 "For each node, write a short free-form mainRisk field that states the main risk and why it matters. "
