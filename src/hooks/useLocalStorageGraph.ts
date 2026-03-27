@@ -114,7 +114,7 @@ const defaultState: GraphState = {
       id: 'node_efficacy_bridge',
       nodeKind: 'experiment',
       title: 'In vivo efficacy bridge',
-      type: 'efficacy',
+      type: 'other',
       objective:
         'Confirm that the clinical candidate maintains a credible efficacy signal at exposures achievable in vivo.',
       procedureSummary:

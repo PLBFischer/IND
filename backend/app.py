@@ -65,12 +65,9 @@ from backend.pathway_prompts import (
 
 RiskLevel = Literal["Very Low", "Low", "Medium", "High", "Very High"]
 NodeType = Literal[
-    "in_vitro",
-    "in_vivo",
     "pk",
     "tox",
     "safety_pharmacology",
-    "efficacy",
     "formulation_cmc",
     "bioanalysis",
     "regulatory",

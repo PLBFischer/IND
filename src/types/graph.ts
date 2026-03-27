@@ -16,12 +16,9 @@ export const NODE_KIND_OPTIONS = [
 export type NodeKind = (typeof NODE_KIND_OPTIONS)[number];
 
 export const NODE_TYPE_OPTIONS = [
-  'in_vitro',
-  'in_vivo',
   'pk',
   'tox',
   'safety_pharmacology',
-  'efficacy',
   'formulation_cmc',
   'bioanalysis',
   'regulatory',
@@ -31,12 +28,9 @@ export const NODE_TYPE_OPTIONS = [
 export type NodeType = (typeof NODE_TYPE_OPTIONS)[number];
 
 export const NODE_TYPE_LABELS: Record<NodeType, string> = {
-  in_vitro: 'In vitro',
-  in_vivo: 'In vivo',
   pk: 'PK',
   tox: 'Tox',
   safety_pharmacology: 'Safety pharmacology',
-  efficacy: 'Efficacy',
   formulation_cmc: 'Formulation / CMC',
   bioanalysis: 'Bioanalysis',
   regulatory: 'Regulatory',
