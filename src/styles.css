@@ -1050,114 +1050,6 @@ button {
   gap: 6px;
 }
 
-.deep-risk-panel {
-  position: absolute;
-  top: 24px;
-  left: 24px;
-  bottom: 24px;
-  z-index: 3;
-  width: 520px;
-  max-width: min(520px, calc(100vw - 48px));
-  background: rgba(250, 250, 251, 0.97);
-  border: 1px solid var(--border);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  backdrop-filter: blur(10px);
-  box-shadow: 0 18px 40px rgba(17, 19, 23, 0.1);
-}
-
-.deep-risk-panel__header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.deep-risk-panel__header h2 {
-  margin: 4px 0 0;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.deep-risk-panel__content {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding-right: 4px;
-}
-
-.deep-risk-panel__text,
-.deep-risk-panel__empty,
-.deep-risk-panel__section p,
-.deep-risk-panel__card p,
-.deep-risk-panel__card span,
-.deep-risk-panel__list li {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted-strong);
-  line-height: 1.55;
-}
-
-.deep-risk-panel__levels {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.deep-risk-panel__levels div,
-.deep-risk-panel__card {
-  border: 1px solid var(--border);
-  background: var(--surface);
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.deep-risk-panel__levels span,
-.deep-risk-panel__card span {
-  font-size: 10px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.deep-risk-panel__levels strong,
-.deep-risk-panel__card strong {
-  font-size: 13px;
-  color: var(--text);
-}
-
-.deep-risk-panel__section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.deep-risk-panel__section h3 {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text);
-}
-
-.deep-risk-panel__cards {
-  display: grid;
-  gap: 10px;
-}
-
-.deep-risk-panel__list {
-  margin: 0;
-  padding-left: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .chat-panel__header {
   display: flex;
   justify-content: space-between;
@@ -1780,18 +1672,6 @@ button {
   }
 
   .evidence-panel {
-    top: auto;
-    right: 0;
-    left: 0;
-    bottom: 0;
-    width: 100%;
-    max-width: 100%;
-    border-left: none;
-    border-right: none;
-    border-bottom: none;
-  }
-
-  .deep-risk-panel {
     top: auto;
     right: 0;
     left: 0;

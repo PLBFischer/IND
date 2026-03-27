@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { AcceleratePanel } from './components/AcceleratePanel';
 import { Canvas } from './components/Canvas';
-import { DeepRiskPanel } from './components/DeepRiskPanel';
 import { EvidencePanel } from './components/EvidencePanel';
 import { NodeEditor } from './components/NodeEditor';
 import { PathwayNodeEditor } from './components/PathwayNodeEditor';
@@ -19,8 +18,6 @@ import type {
   AccelerateResponse,
   AccelerationProposal,
   BiologicalPathwayNode,
-  DeepRiskAnalysis,
-  DeepRiskResponse,
   EvidenceQueryResponse,
   EditorMode,
   ExperimentNode,
@@ -301,9 +298,6 @@ function App() {
   const [riskAssessments, setRiskAssessments] = useState<NodeRiskAssessment[]>([]);
   const [isRiskLoading, setIsRiskLoading] = useState(false);
   const [riskError, setRiskError] = useState<string | null>(null);
-  const [deepRiskAnalysis, setDeepRiskAnalysis] = useState<DeepRiskAnalysis | null>(null);
-  const [deepRiskError, setDeepRiskError] = useState<string | null>(null);
-  const [isDeepRiskLoading, setIsDeepRiskLoading] = useState(false);
   const [isPathwayExplorerOpen, setIsPathwayExplorerOpen] = useState(false);
   const [isPathwayBuildLoading, setIsPathwayBuildLoading] = useState(false);
   const [pathwayBuildError, setPathwayBuildError] = useState<string | null>(null);
@@ -321,7 +315,6 @@ function App() {
   const accelerateAbortRef = useRef<AbortController | null>(null);
   const evidenceAbortRef = useRef<AbortController | null>(null);
   const riskAbortRef = useRef<AbortController | null>(null);
-  const deepRiskAbortRef = useRef<AbortController | null>(null);
   const zoomRef = useRef(1);
   const viewportRefState = useRef({ x: 0, y: 0 });
   const shouldAutoCenterRef = useRef(true);
@@ -515,14 +508,6 @@ function App() {
   useEffect(() => {
     previousRiskAssessmentsRef.current = riskAssessments;
   }, [riskAssessments]);
-
-  useEffect(() => {
-    deepRiskAbortRef.current?.abort();
-    deepRiskAbortRef.current = null;
-    setIsDeepRiskLoading(false);
-    setDeepRiskAnalysis(null);
-    setDeepRiskError(null);
-  }, [selectedNodeId]);
 
   useLayoutEffect(() => {
     if (!shouldAutoCenterRef.current) {
@@ -1154,61 +1139,6 @@ function App() {
     }
   };
 
-  const requestDeepRiskReasoning = async () => {
-    if (!selectedNodeId) {
-      return;
-    }
-
-    const node = getNodeById(nodes, selectedNodeId);
-    if (!node || !isExperimentNode(node) || !isActiveNodeStatus(node.status)) {
-      return;
-    }
-
-    deepRiskAbortRef.current?.abort();
-    const controller = new AbortController();
-    deepRiskAbortRef.current = controller;
-    setIsDeepRiskLoading(true);
-    setDeepRiskError(null);
-    setDeepRiskAnalysis(null);
-
-    try {
-      const response = await fetch(`${SCHEDULER_API_BASE}/risk/deep`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          graph: analysisGraph,
-          nodeId: selectedNodeId,
-          previousAssessment: selectedNodeRiskAssessment,
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          await getResponseErrorMessage(response, 'Deep reasoning could not analyze this node.'),
-        );
-      }
-
-      const payload = (await response.json()) as DeepRiskResponse;
-      setDeepRiskAnalysis(payload.analysis);
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return;
-      }
-
-      setDeepRiskError(
-        error instanceof Error ? error.message : 'Deep reasoning could not analyze this node.',
-      );
-    } finally {
-      if (deepRiskAbortRef.current === controller) {
-        deepRiskAbortRef.current = null;
-      }
-      setIsDeepRiskLoading(false);
-    }
-  };
-
   const savePathwayNodeAndGetId = (
     values: Omit<BiologicalPathwayNode, 'id' | 'x' | 'y'>,
   ) => {
@@ -1452,11 +1382,6 @@ function App() {
     previousRiskAssessmentsRef.current = [];
     setIsRiskLoading(false);
     setRiskError(null);
-    deepRiskAbortRef.current?.abort();
-    deepRiskAbortRef.current = null;
-    setDeepRiskAnalysis(null);
-    setDeepRiskError(null);
-    setIsDeepRiskLoading(false);
     setHighlightedNodeId(null);
     shouldAutoCenterRef.current = true;
     setZoom(1);
@@ -1593,7 +1518,6 @@ function App() {
             riskAssessment={selectedNodeRiskAssessment}
             isRiskLoading={isRiskLoading}
             riskError={riskError}
-            isDeepReasoningLoading={isDeepRiskLoading}
             showParallelizationMultiplier={showParallelizationMultiplier}
             isConnectMode={interactionMode?.type === 'connect'}
             isParallelizeMode={interactionMode?.type === 'parallelize'}
@@ -1611,9 +1535,6 @@ function App() {
               }
             }}
             onCancelConnect={() => setInteractionMode(null)}
-            onDeepReasoning={() => {
-              void requestDeepRiskReasoning();
-            }}
           />
         ) : null}
         {(createNodeKind === 'biological_pathway' && editorMode === 'create') || selectedPathwayNode ? (
@@ -1636,19 +1557,6 @@ function App() {
             onOpenExplorer={() => setIsPathwayExplorerOpen(true)}
           />
         ) : null}
-        <DeepRiskPanel
-          analysis={deepRiskAnalysis}
-          isLoading={isDeepRiskLoading}
-          error={deepRiskError}
-          nodeTitle={selectedExperimentNode?.title ?? null}
-          onClose={() => {
-            deepRiskAbortRef.current?.abort();
-            deepRiskAbortRef.current = null;
-            setIsDeepRiskLoading(false);
-            setDeepRiskError(null);
-            setDeepRiskAnalysis(null);
-          }}
-        />
         <EvidencePanel
           isOpen={isEvidenceOpen}
           isLoading={isEvidenceLoading}

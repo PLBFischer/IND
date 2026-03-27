@@ -226,48 +226,6 @@ export type RiskScanResponse = {
   assessments: NodeRiskAssessment[];
 };
 
-export type ParallelizationOption = {
-  action: string;
-  rationale: string;
-  prerequisites: string;
-  tradeoffs: string;
-};
-
-export type ScenarioAssessment = {
-  label: 'conservative' | 'base' | 'optimistic';
-  outlook: string;
-};
-
-export type DeepRiskAnalysis = {
-  nodeId: string;
-  scientificRisk: RiskLevel;
-  executionRisk: RiskLevel;
-  regulatoryRisk: RiskLevel;
-  coherenceRisk: RiskLevel;
-  overallRisk: RiskLevel;
-  fragility: RiskLevel;
-  executiveSummary: string;
-  detailedReasoning: string;
-  scientificBreakdown: string[];
-  executionBreakdown: string[];
-  regulatoryBreakdown: string[];
-  coherenceBreakdown: string[];
-  fragilityBreakdown: string[];
-  keyAssumptionsUsed: string[];
-  affectedDownstreamClaims: string[];
-  missingEvidence: string[];
-  mitigationStrategies: RiskRecommendation[];
-  parallelizationOptions: ParallelizationOption[];
-  whatWouldResolveUncertainty: string[];
-  likelyTimelineImpact: string;
-  likelySpendImpact: string;
-  scenarios: ScenarioAssessment[];
-};
-
-export type DeepRiskResponse = {
-  analysis: DeepRiskAnalysis;
-};
-
 export type AccelerateResponse = {
   proposal: AccelerationProposal | null;
   stopReason: string | null;

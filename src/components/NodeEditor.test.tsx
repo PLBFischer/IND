@@ -61,7 +61,6 @@ describe('NodeEditor', () => {
         riskAssessment={riskAssessment}
         isRiskLoading={false}
         riskError={null}
-        isDeepReasoningLoading={false}
         showParallelizationMultiplier
         isConnectMode={false}
         isParallelizeMode={false}
@@ -71,7 +70,6 @@ describe('NodeEditor', () => {
         onStartConnect={vi.fn()}
         onStartParallelize={vi.fn()}
         onCancelConnect={vi.fn()}
-        onDeepReasoning={vi.fn()}
       />,
     );
 

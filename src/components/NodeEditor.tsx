@@ -22,7 +22,6 @@ type NodeEditorProps = {
   riskAssessment: NodeRiskAssessment | null;
   isRiskLoading: boolean;
   riskError: string | null;
-  isDeepReasoningLoading: boolean;
   showParallelizationMultiplier: boolean;
   isConnectMode: boolean;
   isParallelizeMode: boolean;
@@ -32,7 +31,6 @@ type NodeEditorProps = {
   onStartConnect: () => void;
   onStartParallelize: () => void;
   onCancelConnect: () => void;
-  onDeepReasoning: () => void;
 };
 
 const splitEvidenceRefs = (value: string) =>
@@ -48,7 +46,6 @@ export function NodeEditor({
   riskAssessment,
   isRiskLoading,
   riskError,
-  isDeepReasoningLoading,
   showParallelizationMultiplier,
   isConnectMode,
   isParallelizeMode,
@@ -58,7 +55,6 @@ export function NodeEditor({
   onStartConnect,
   onStartParallelize,
   onCancelConnect,
-  onDeepReasoning,
 }: NodeEditorProps) {
   const [title, setTitle] = useState('');
   const [type, setType] = useState<ExperimentNode['type']>('other');
@@ -574,14 +570,6 @@ export function NodeEditor({
                   <span className="editor__eyebrow">Risk Snapshot</span>
                   <h3>Risk, Fragility, and Coherence</h3>
                 </div>
-                <button
-                  type="button"
-                  className="button"
-                  onClick={onDeepReasoning}
-                  disabled={isDeepReasoningLoading}
-                >
-                  {isDeepReasoningLoading ? 'Reasoning...' : 'Deep Reasoning'}
-                </button>
               </div>
               {isRiskLoading ? <p className="editor__risk-text">Refreshing risk scores.</p> : null}
               {riskError ? <p className="editor__risk-text">{riskError}</p> : null}
