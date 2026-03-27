@@ -992,7 +992,7 @@ def build_chat_graph_context(payload: ChatRequest) -> dict[str, object]:
 
 def build_risk_graph_context(graph: GraphPayload) -> tuple[dict[str, object], ScheduleResponse]:
     schedule = solve_schedule_response(graph)
-    context = build_chat_graph_context(ChatRequest(messages=[], graph=graph, schedule=schedule))
+    chat_context = build_chat_graph_context(ChatRequest(messages=[], graph=graph, schedule=schedule))
     scheduled_by_node = {node.nodeId: node for node in schedule.nodes}
 
     experiment_nodes = get_experiment_nodes(graph)
@@ -1038,6 +1038,33 @@ def build_risk_graph_context(graph: GraphPayload) -> tuple[dict[str, object], Sc
         if node.nodeId in active_node_ids and abs(node.finish - schedule.makespan) < 1e-9
     }
 
+    context: dict[str, object] = {
+        "program": chat_context["program"],
+        "nodes": [
+            {
+                "id": node.id,
+                "title": node.title,
+                "type": node.type,
+                "status": node.status,
+                "objective": node.objective,
+                "procedure_summary": node.procedureSummary,
+                "success_criteria": node.successCriteria,
+                "decision_supported": node.decisionSupported,
+                "results": node.results,
+                "operational_notes": node.operationalNotes,
+                "blocker_priority": node.blockerPriority,
+                "phase1_relevance": node.phase1Relevance,
+                "ind_relevance": node.indRelevance,
+                "cost_usd": node.cost,
+                "duration_weeks": node.duration,
+                "effective_multiplier": get_effective_multiplier(node, graph.edges),
+                "predecessor_node_ids": [edge.source for edge in experiment_edges if edge.target == node.id],
+                "successor_node_ids": [edge.target for edge in experiment_edges if edge.source == node.id],
+            }
+            for node in experiment_nodes
+        ],
+        "pathway_nodes": chat_context["pathway_nodes"],
+    }
     context["risk_focus_nodes"] = [
         {
             "node_id": node.id,
@@ -1205,6 +1232,8 @@ def score_risks_with_llm(payload: RiskScanRequest) -> RiskScanResponse:
                 "Overall risk means the combined bottom-line assessment after considering scientific risk, operational risk, and the node's role in the program. "
                 "Fragility means program-level impact if the node slips or fails, including critical path disruption, downstream dependency depth, rework cascades, replaceability, and hedgeability through parallelization. "
                 "Use the graph snapshot, program context, and derived schedule as the source of truth for program structure. "
+                "Use graph_context.nodes as the primary source for each node's scientific intent, procedure, success criteria, decisions supported, results, and operational notes. "
+                "Use graph_context.risk_focus_nodes as the primary source for dependency depth, downstream impact, program relevance, and critical-path fragility. "
                 "Treat a non-parallelized edge as completion dependency: the target depends on the source finishing. "
                 "Treat a parallelized edge as start dependency: the target may begin once the source has started. "
                 "For each node, write a short free-form mainRisk field that states the main risk and why it matters. "
