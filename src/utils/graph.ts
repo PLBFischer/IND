@@ -1,5 +1,6 @@
 import type {
   BiologicalPathwayNode,
+  DataNode,
   ExperimentNode,
   FlowEdge,
   FlowNode,
@@ -22,6 +23,9 @@ export const isExperimentNode = (node: FlowNode): node is ExperimentNode =>
 
 export const isPathwayNode = (node: FlowNode): node is BiologicalPathwayNode =>
   node.nodeKind === 'biological_pathway';
+
+export const isDataNode = (node: FlowNode): node is DataNode =>
+  node.nodeKind === 'data';
 
 export const getNodeById = (nodes: FlowNode[], id: string | null) =>
   id ? nodes.find((node) => node.id === id) ?? null : null;
@@ -86,6 +90,10 @@ export const getNodeCardSummary = (node: FlowNode) => {
       (node.focusTerms ?? []).slice(0, 3).join(', ') ||
       'Mechanistic evidence node.'
     );
+  }
+
+  if (isDataNode(node)) {
+    return node.description.trim() || 'Uploaded dataset node.';
   }
 
   return (

@@ -8,6 +8,7 @@ import {
   getNodeCardSummary,
   getNodeStatusLabel,
   getNodeTypeLabel,
+  isDataNode,
   isExperimentNode,
   isActiveNodeStatus,
 } from '../utils/graph';
@@ -42,6 +43,7 @@ export function FlowNode({
   onPointerDown,
 }: FlowNodeProps) {
   const isExperiment = isExperimentNode(node);
+  const isData = isDataNode(node);
   const effectiveCost = isExperiment ? getEffectiveNodeCost(node, edges) : null;
   const effectiveWorkHoursPerWeek = isExperiment
     ? getEffectiveNodeWorkHoursPerWeek(node, edges)
@@ -52,7 +54,7 @@ export function FlowNode({
   const isActive = isExperiment ? isActiveNodeStatus(node.status) : false;
   const className = [
     'flow-node',
-    isExperiment ? '' : 'flow-node--pathway',
+    isExperiment ? '' : isData ? 'flow-node--data' : 'flow-node--pathway',
     selected ? 'flow-node--selected' : '',
     highlighted ? 'flow-node--highlighted' : '',
     connectable ? 'flow-node--connectable' : '',
@@ -113,10 +115,21 @@ export function FlowNode({
             </>
           ) : (
             <>
-              <span className="flow-node__badge flow-node__badge--pathway">Biological pathway</span>
-              <span className="flow-node__badge flow-node__badge--status">
-                {node.extractionStatus}
-              </span>
+              {isData ? (
+                <>
+                  <span className="flow-node__badge flow-node__badge--data">Data</span>
+                  <span className="flow-node__badge flow-node__badge--status">
+                    {node.files.length} file{node.files.length === 1 ? '' : 's'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="flow-node__badge flow-node__badge--pathway">Biological pathway</span>
+                  <span className="flow-node__badge flow-node__badge--status">
+                    {node.extractionStatus}
+                  </span>
+                </>
+              )}
             </>
           )}
         </div>
@@ -148,6 +161,17 @@ export function FlowNode({
           </dl>
         ) : isExperiment ? (
           <div className="flow-node__status">{getNodeStatusLabel(node.status)}</div>
+        ) : isData ? (
+          <dl className="flow-node__metrics flow-node__metrics--data">
+            <div>
+              <dt>Files</dt>
+              <dd>{node.files.length}</dd>
+            </div>
+            <div>
+              <dt>Kind</dt>
+              <dd>Dataset</dd>
+            </div>
+          </dl>
         ) : (
           <dl className="flow-node__metrics flow-node__metrics--pathway">
             <div>

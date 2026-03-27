@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type {
   BiologicalPathwayNode,
+  DataFileAttachment,
+  DataNode,
   ExperimentNode,
   FlowEdge,
   FlowNode,
@@ -300,6 +302,35 @@ const normalizePathwaySources = (value: unknown): PathwayPaperSource[] => {
   });
 };
 
+const normalizeDataFiles = (value: unknown): DataFileAttachment[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry, index) => {
+    if (!isObject(entry) || typeof entry.name !== 'string') {
+      return [];
+    }
+
+    return [
+      {
+        id:
+          typeof entry.id === 'string' && entry.id.trim()
+            ? entry.id
+            : `data_file_${index + 1}`,
+        name: entry.name,
+        sizeBytes: normalizeNumber(entry.sizeBytes, 0),
+        mimeType:
+          typeof entry.mimeType === 'string' ? entry.mimeType : 'application/octet-stream',
+        uploadedAt:
+          typeof entry.uploadedAt === 'string' && entry.uploadedAt.trim()
+            ? entry.uploadedAt
+            : new Date(0).toISOString(),
+      },
+    ];
+  });
+};
+
 const normalizeProgramContext = (value: unknown): ProgramContext => {
   if (!isObject(value)) {
     return defaultProgram;
@@ -422,6 +453,17 @@ const normalizePathwayNode = (node: Record<string, unknown>): BiologicalPathwayN
       : null,
 });
 
+const normalizeDataNode = (node: Record<string, unknown>): DataNode => ({
+  id: node.id as string,
+  nodeKind: 'data',
+  title: node.title as string,
+  x: normalizeNumber(node.x, 120),
+  y: normalizeNumber(node.y, 120),
+  description: typeof node.description === 'string' ? node.description : '',
+  files: normalizeDataFiles(node.files),
+  linkedExperimentNodeIds: normalizeStringList(node.linkedExperimentNodeIds),
+});
+
 const normalizeNode = (node: unknown): FlowNode | null => {
   if (!isObject(node) || typeof node.id !== 'string' || typeof node.title !== 'string') {
     return null;
@@ -429,6 +471,10 @@ const normalizeNode = (node: unknown): FlowNode | null => {
 
   if (node.nodeKind === 'biological_pathway') {
     return normalizePathwayNode(node);
+  }
+
+  if (node.nodeKind === 'data') {
+    return normalizeDataNode(node);
   }
 
   return normalizeExperimentNode(node);

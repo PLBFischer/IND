@@ -10,6 +10,7 @@ import type {
 export const NODE_KIND_OPTIONS = [
   'experiment',
   'biological_pathway',
+  'data',
 ] as const;
 
 export type NodeKind = (typeof NODE_KIND_OPTIONS)[number];
@@ -136,7 +137,22 @@ export type BiologicalPathwayNode = BaseNode & {
   latestQueryResponse?: PathwayQueryResponse | null;
 };
 
-export type FlowNode = ExperimentNode | BiologicalPathwayNode;
+export type DataFileAttachment = {
+  id: string;
+  name: string;
+  sizeBytes: number;
+  mimeType: string;
+  uploadedAt: string;
+};
+
+export type DataNode = BaseNode & {
+  nodeKind: 'data';
+  description: string;
+  files: DataFileAttachment[];
+  linkedExperimentNodeIds?: string[];
+};
+
+export type FlowNode = ExperimentNode | BiologicalPathwayNode | DataNode;
 
 export type FlowEdge = {
   id: string;

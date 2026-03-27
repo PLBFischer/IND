@@ -14,6 +14,7 @@ type ToolbarProps = {
   onToggleTimeline: () => void;
   onAddExperimentNode: () => void;
   onAddPathwayNode: () => void;
+  onAddDataNode: () => void;
 };
 
 export function Toolbar({
@@ -32,6 +33,7 @@ export function Toolbar({
   onToggleTimeline,
   onAddExperimentNode,
   onAddPathwayNode,
+  onAddDataNode,
 }: ToolbarProps) {
   return (
     <header className="toolbar">
@@ -82,6 +84,9 @@ export function Toolbar({
         </button>
         <button type="button" className="button" onClick={onAddPathwayNode}>
           Add Pathway
+        </button>
+        <button type="button" className="button" onClick={onAddDataNode}>
+          Add Data
         </button>
         <button type="button" className="button button--primary" onClick={onAddExperimentNode}>
           Add Experiment

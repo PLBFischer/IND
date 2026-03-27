@@ -1733,13 +1733,27 @@ button {
   background: linear-gradient(180deg, #f7fbf8 0%, #eef6f0 100%);
 }
 
+.flow-node--data {
+  border-style: dashed;
+  background: linear-gradient(180deg, #f4faff 0%, #e9f4ff 100%);
+}
+
 .flow-node__badge--pathway {
   background: #dbeee0;
   color: #284438;
 }
 
+.flow-node__badge--data {
+  background: #d7e9ff;
+  color: #244a73;
+}
+
 .flow-node__metrics--pathway dd {
   color: #284438;
+}
+
+.flow-node__metrics--data dd {
+  color: #244a73;
 }
 
 .editor__button-row {
@@ -1775,6 +1789,34 @@ button {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.data-editor__files {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.data-editor__file {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.7);
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.data-editor__file strong {
+  display: block;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.data-editor__file-meta {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .pathway-panel__query-summary,

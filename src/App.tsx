@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
+import { DataNodeEditor } from './components/DataNodeEditor';
 import { AcceleratePanel } from './components/AcceleratePanel';
 import { Canvas } from './components/Canvas';
 import { EvidencePanel } from './components/EvidencePanel';
@@ -18,6 +19,7 @@ import type {
   AccelerateResponse,
   AccelerationProposal,
   BiologicalPathwayNode,
+  DataNode,
   EvidenceQueryResponse,
   EditorMode,
   ExperimentNode,
@@ -37,11 +39,13 @@ import {
   getExperimentNodes,
   getNodeById,
   hasIncomingParallelizedEdge,
+  isDataNode,
   isExperimentNode,
   isPathwayNode,
   isActiveNodeStatus,
 } from './utils/graph';
 import { formatCurrencyMetric, formatMetric, getTotalCost } from './utils/metrics';
+import { createEmptyDataNode } from './utils/data';
 import { createEmptyPathwayNode } from './utils/pathway';
 import { getWarningLevel } from './utils/risk';
 import { STORAGE_KEY } from './utils/constants';
@@ -133,6 +137,7 @@ const getResponseErrorMessage = async (response: Response, fallback: string) => 
 
 type InteractionMode =
   | { type: 'connect'; nodeId: string }
+  | { type: 'connect_data_target'; nodeId: string }
   | { type: 'parallelize'; nodeId: string }
   | null;
 
@@ -194,67 +199,78 @@ const buildAnalysisGraph = (
   personnel: Personnel[],
   nodes: FlowNode[],
   edges: FlowEdge[],
-) => ({
-  program: {
-    programTitle: program.programTitle,
-    targetPhase1Design: program.targetPhase1Design,
-    targetIndStrategy: program.targetIndStrategy,
-    currentWeek: program.currentWeek,
-  },
-  personnel: personnel.map((person) => ({
-    name: person.name,
-    hoursPerWeek: person.hoursPerWeek,
-  })),
-  nodes: nodes.map((node) =>
-    isExperimentNode(node)
-      ? {
-          id: node.id,
-          nodeKind: node.nodeKind,
-          title: node.title,
-          type: node.type,
-          objective: node.objective,
-          procedureSummary: node.procedureSummary,
-          successCriteria: node.successCriteria,
-          decisionSupported: node.decisionSupported,
-          results: node.results,
-          operationalNotes: node.operationalNotes,
-          cost: node.cost,
-          duration: node.duration,
-          workHoursPerWeek: node.workHoursPerWeek,
-          parallelizationMultiplier: node.parallelizationMultiplier,
-          operators: node.operators,
-          owner: node.owner,
-          status: node.status,
-          actualStartWeek: node.actualStartWeek ?? null,
-          blockerPriority: node.blockerPriority,
-          phase1Relevance: node.phase1Relevance,
-          indRelevance: node.indRelevance,
-          evidenceRefs: node.evidenceRefs,
-          linkedPathwayNodeIds: node.linkedPathwayNodeIds ?? [],
-        }
-      : {
-          id: node.id,
-          nodeKind: node.nodeKind,
-          title: node.title,
-          summary: node.summary,
-          focusTerms: node.focusTerms ?? [],
-          paperSources: [],
-          extractionStatus: node.extractionStatus,
-          extractionError: node.extractionError ?? null,
-          pathwayGraph: null,
-          sanityReport: null,
-          queryHistory: [],
-          lastBuiltAt: node.lastBuiltAt ?? null,
-          linkedExperimentNodeIds: node.linkedExperimentNodeIds ?? [],
-        },
-  ),
-  edges: edges.map((edge) => ({
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    parallelized: edge.parallelized,
-  })),
-});
+) => {
+  const analysisNodes: Array<Record<string, unknown>> = [];
+
+  for (const node of nodes) {
+    if (isExperimentNode(node)) {
+      analysisNodes.push({
+        id: node.id,
+        nodeKind: node.nodeKind,
+        title: node.title,
+        type: node.type,
+        objective: node.objective,
+        procedureSummary: node.procedureSummary,
+        successCriteria: node.successCriteria,
+        decisionSupported: node.decisionSupported,
+        results: node.results,
+        operationalNotes: node.operationalNotes,
+        cost: node.cost,
+        duration: node.duration,
+        workHoursPerWeek: node.workHoursPerWeek,
+        parallelizationMultiplier: node.parallelizationMultiplier,
+        operators: node.operators,
+        owner: node.owner,
+        status: node.status,
+        actualStartWeek: node.actualStartWeek ?? null,
+        blockerPriority: node.blockerPriority,
+        phase1Relevance: node.phase1Relevance,
+        indRelevance: node.indRelevance,
+        evidenceRefs: node.evidenceRefs,
+        linkedPathwayNodeIds: node.linkedPathwayNodeIds ?? [],
+      });
+      continue;
+    }
+
+    if (isPathwayNode(node)) {
+      analysisNodes.push({
+        id: node.id,
+        nodeKind: node.nodeKind,
+        title: node.title,
+        summary: node.summary,
+        focusTerms: node.focusTerms ?? [],
+        paperSources: [],
+        extractionStatus: node.extractionStatus,
+        extractionError: node.extractionError ?? null,
+        pathwayGraph: null,
+        sanityReport: null,
+        queryHistory: [],
+        lastBuiltAt: node.lastBuiltAt ?? null,
+        linkedExperimentNodeIds: node.linkedExperimentNodeIds ?? [],
+      });
+    }
+  }
+
+  return {
+    program: {
+      programTitle: program.programTitle,
+      targetPhase1Design: program.targetPhase1Design,
+      targetIndStrategy: program.targetIndStrategy,
+      currentWeek: program.currentWeek,
+    },
+    personnel: personnel.map((person) => ({
+      name: person.name,
+      hoursPerWeek: person.hoursPerWeek,
+    })),
+    nodes: analysisNodes,
+    edges: edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      parallelized: edge.parallelized,
+    })),
+  };
+};
 
 function App() {
   const {
@@ -325,6 +341,8 @@ function App() {
     selectedNode && isExperimentNode(selectedNode) ? selectedNode : null;
   const selectedPathwayNode =
     selectedNode && isPathwayNode(selectedNode) ? selectedNode : null;
+  const selectedDataNode =
+    selectedNode && isDataNode(selectedNode) ? selectedNode : null;
   const experimentNodes = getExperimentNodes(nodes);
   const totalCost = formatCurrencyMetric(getTotalCost(nodes, edges));
   const showParallelizationMultiplier = selectedExperimentNode
@@ -361,9 +379,11 @@ function App() {
               return isExperimentNode(node);
             }
 
-            return isExperimentNode(node);
+            return isExperimentNode(node) || isDataNode(node);
           })
           .map((node) => node.id)
+      : interactionMode?.type === 'connect_data_target'
+        ? nodes.filter((node) => isExperimentNode(node)).map((node) => node.id)
       : interactionMode?.type === 'parallelize'
         ? edges
             .filter((edge) => edge.target === interactionMode.nodeId)
@@ -610,7 +630,12 @@ function App() {
 
     if (interactionMode?.type === 'connect') {
       const targetNode = getNodeById(nodes, id);
-      if (!targetNode || !isExperimentNode(targetNode)) {
+      const sourceNode = getNodeById(nodes, interactionMode.nodeId);
+      if (
+        !targetNode ||
+        !sourceNode ||
+        !(isExperimentNode(targetNode) || (isExperimentNode(sourceNode) && isDataNode(targetNode)))
+      ) {
         return;
       }
       if (interactionMode.nodeId === id) {
@@ -630,6 +655,36 @@ function App() {
             id: createId('edge'),
             source: interactionMode.nodeId,
             target: id,
+            parallelized: false,
+          },
+        ]);
+      }
+
+      setSelectedNodeId(interactionMode.nodeId);
+      setInteractionMode(null);
+      setEditorMode('edit');
+      return;
+    }
+
+    if (interactionMode?.type === 'connect_data_target') {
+      const sourceNode = getNodeById(nodes, id);
+      if (!sourceNode || !isExperimentNode(sourceNode)) {
+        return;
+      }
+
+      const existingEdge = edges.find(
+        (edge) => edge.source === id && edge.target === interactionMode.nodeId,
+      );
+
+      if (existingEdge) {
+        setEdges((current) => current.filter((edge) => edge.id !== existingEdge.id));
+      } else {
+        setEdges((current) => [
+          ...current,
+          {
+            id: createId('edge'),
+            source: id,
+            target: interactionMode.nodeId,
             parallelized: false,
           },
         ]);
@@ -678,7 +733,8 @@ function App() {
   const handleSaveNode = (
     values:
       | Omit<ExperimentNode, 'id' | 'x' | 'y'>
-      | Omit<BiologicalPathwayNode, 'id' | 'x' | 'y'>,
+      | Omit<BiologicalPathwayNode, 'id' | 'x' | 'y'>
+      | Omit<DataNode, 'id' | 'x' | 'y'>,
   ) => {
     if (editorMode === 'create') {
       const createdNode: FlowNode =
@@ -692,6 +748,16 @@ function App() {
               ),
               ...values,
             }
+          : values.nodeKind === 'data'
+            ? {
+                ...createEmptyDataNode(
+                  createId('node'),
+                  values.title,
+                  INITIAL_NODE_POSITION.x + nodes.length * 28,
+                  INITIAL_NODE_POSITION.y + nodes.length * 28,
+                ),
+                ...values,
+              }
           : {
               id: createId('node'),
               x: INITIAL_NODE_POSITION.x + nodes.length * 28,
@@ -1470,6 +1536,7 @@ function App() {
         onToggleTimeline={handleToggleTimeline}
         onAddExperimentNode={() => openCreateEditor('experiment')}
         onAddPathwayNode={() => openCreateEditor('biological_pathway')}
+        onAddDataNode={() => openCreateEditor('data')}
       />
       {scheduleError || schedule?.diagnostics.length ? (
         <section className="schedule-banner" aria-label="Scheduling status">
@@ -1555,6 +1622,22 @@ function App() {
             onCancelConnect={() => setInteractionMode(null)}
             onBuild={handleBuildPathway}
             onOpenExplorer={() => setIsPathwayExplorerOpen(true)}
+          />
+        ) : null}
+        {(createNodeKind === 'data' && editorMode === 'create') || selectedDataNode ? (
+          <DataNodeEditor
+            mode={editorMode}
+            node={selectedDataNode}
+            isConnectMode={interactionMode?.type === 'connect_data_target'}
+            onClose={closeEditor}
+            onSave={handleSaveNode}
+            onDelete={handleDeleteNode}
+            onStartConnect={() => {
+              if (selectedDataNode) {
+                setInteractionMode({ type: 'connect_data_target', nodeId: selectedDataNode.id });
+              }
+            }}
+            onCancelConnect={() => setInteractionMode(null)}
           />
         ) : null}
         <EvidencePanel
