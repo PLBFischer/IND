@@ -352,22 +352,18 @@ class EvidenceQueryRequest(BaseModel):
 
 class EvidenceReference(BaseModel):
     nodeId: str
-    field: str
-    snippet: str
     rationale: str
 
 
 class EvidenceQueryResponse(BaseModel):
     answer: str
     supportingEvidence: list[EvidenceReference] = Field(default_factory=list)
-    missingEvidence: list[str] = Field(default_factory=list)
     referencedNodeIds: list[str] = Field(default_factory=list)
 
 
 class EvidenceChoice(BaseModel):
     answer: str
     supportingEvidence: list[EvidenceReference] = Field(default_factory=list)
-    missingEvidence: list[str] = Field(default_factory=list)
     referencedNodeIds: list[str] = Field(default_factory=list)
 
 
@@ -1484,10 +1480,12 @@ def answer_evidence_query_with_llm(payload: EvidenceQueryRequest) -> EvidenceQue
                 "You answer evidence queries over a translational program graph. "
                 "Use the provided graph snapshot and program context as the source of truth for what evidence exists in the user's program. "
                 "You may use general scientific knowledge to interpret the evidence, but never invent graph-specific facts. "
-                "Return a concise answer, a list of supporting evidence snippets tied to node IDs and fields, and a list of missing evidence or weakly supported claims if relevant. "
+                "Return a concise answer and a list of supporting evidence references at the node level. "
+                "Each supportingEvidence item must represent the node as a whole, not a field, subunit, or section of the node. "
+                "Return at most one supportingEvidence item per node. "
                 "Only cite node IDs that exist in the graph. "
-                "If the graph does not support the claim directly, say so clearly and put the gap in missingEvidence. "
-                "Keep snippets short and inspectable."
+                "If the graph does not support the claim directly, say so clearly in the answer. "
+                "For each supportingEvidence item, provide a short rationale explaining why that node supports the answer."
             ),
             input=json.dumps(
                 {
@@ -1517,16 +1515,10 @@ def answer_evidence_query_with_llm(payload: EvidenceQueryRequest) -> EvidenceQue
                                     "additionalProperties": False,
                                     "properties": {
                                         "nodeId": {"type": "string"},
-                                        "field": {"type": "string"},
-                                        "snippet": {"type": "string"},
                                         "rationale": {"type": "string"},
                                     },
-                                    "required": ["nodeId", "field", "snippet", "rationale"],
+                                    "required": ["nodeId", "rationale"],
                                 },
-                            },
-                            "missingEvidence": {
-                                "type": "array",
-                                "items": {"type": "string"},
                             },
                             "referencedNodeIds": {
                                 "type": "array",
@@ -1536,7 +1528,6 @@ def answer_evidence_query_with_llm(payload: EvidenceQueryRequest) -> EvidenceQue
                         "required": [
                             "answer",
                             "supportingEvidence",
-                            "missingEvidence",
                             "referencedNodeIds",
                         ],
                     },
@@ -1563,11 +1554,13 @@ def answer_evidence_query_with_llm(payload: EvidenceQueryRequest) -> EvidenceQue
             detail="Evidence query produced an incomplete response. Please run it again.",
         ) from error
 
-    filtered_supporting_evidence = [
-        evidence
-        for evidence in choice.supportingEvidence
-        if evidence.nodeId in node_ids
-    ]
+    filtered_supporting_evidence: list[EvidenceReference] = []
+    seen_node_ids: set[str] = set()
+    for evidence in choice.supportingEvidence:
+        if evidence.nodeId not in node_ids or evidence.nodeId in seen_node_ids:
+            continue
+        filtered_supporting_evidence.append(evidence)
+        seen_node_ids.add(evidence.nodeId)
     referenced_node_ids = [
         node_id for node_id in choice.referencedNodeIds if node_id in node_ids
     ]
@@ -1575,7 +1568,6 @@ def answer_evidence_query_with_llm(payload: EvidenceQueryRequest) -> EvidenceQue
     return EvidenceQueryResponse(
         answer=choice.answer,
         supportingEvidence=filtered_supporting_evidence,
-        missingEvidence=choice.missingEvidence,
         referencedNodeIds=referenced_node_ids,
     )
 

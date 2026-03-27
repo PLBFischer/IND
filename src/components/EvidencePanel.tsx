@@ -39,11 +39,11 @@ export function EvidencePanel({
   }
 
   return (
-    <aside className="evidence-panel" aria-label="Evidence query panel">
+    <aside className="evidence-panel" aria-label="Query panel">
       <div className="evidence-panel__header">
         <div>
-          <span className="toolbar__eyebrow">Evidence</span>
-          <h2>Graph-Grounded Query</h2>
+          <span className="toolbar__eyebrow">Query</span>
+          <h2>Graph Query</h2>
         </div>
         <button type="button" className="icon-button" onClick={onClose}>
           Close
@@ -64,7 +64,7 @@ export function EvidencePanel({
           onClick={onSubmit}
           disabled={isLoading}
         >
-          {isLoading ? 'Searching...' : 'Query Evidence'}
+          {isLoading ? 'Searching...' : 'Run Query'}
         </button>
       </div>
 
@@ -90,9 +90,9 @@ export function EvidencePanel({
             <h3>Supporting Evidence</h3>
             {response.supportingEvidence.length > 0 ? (
               <div className="evidence-panel__cards">
-                {response.supportingEvidence.map((item, index) => (
+                {response.supportingEvidence.map((item) => (
                   <article
-                    key={`${item.nodeId}-${item.field}-${index}`}
+                    key={item.nodeId}
                     className="evidence-panel__card"
                   >
                     <div className="evidence-panel__card-header">
@@ -104,28 +104,13 @@ export function EvidencePanel({
                       >
                         {nodeTitleById[item.nodeId] ?? item.nodeId}
                       </button>
-                      <span>{item.field}</span>
                     </div>
-                    <p>{item.snippet}</p>
                     <p>{item.rationale}</p>
                   </article>
                 ))}
               </div>
             ) : (
               <p className="evidence-panel__empty-copy">No supporting evidence snippets were returned.</p>
-            )}
-          </section>
-
-          <section className="evidence-panel__section">
-            <h3>Missing Evidence</h3>
-            {response.missingEvidence.length > 0 ? (
-              <ul className="evidence-panel__list">
-                {response.missingEvidence.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className="evidence-panel__empty-copy">No major evidence gaps were highlighted.</p>
             )}
           </section>
         </div>

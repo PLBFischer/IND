@@ -196,12 +196,9 @@ def test_evidence_structured_outputs_validate() -> None:
             "supportingEvidence": [
                 {
                     "nodeId": "pk_node",
-                    "field": "decision_supported",
-                    "snippet": "Supports brain penetration claim",
                     "rationale": "This node explicitly ties the work to the claim in question.",
                 }
             ],
-            "missingEvidence": ["No repeat-dose exposure confirmation is present."],
             "referencedNodeIds": ["pk_node"],
         }
     )

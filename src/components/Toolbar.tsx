@@ -71,7 +71,7 @@ export function Toolbar({
           className={isEvidenceOpen ? 'button button--primary' : 'button'}
           onClick={onToggleEvidence}
         >
-          Evidence
+          Query
         </button>
         <button
           type="button"

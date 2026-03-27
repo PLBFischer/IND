@@ -240,15 +240,12 @@ export type ChatResponse = {
 
 export type EvidenceReference = {
   nodeId: string;
-  field: string;
-  snippet: string;
   rationale: string;
 };
 
 export type EvidenceQueryResponse = {
   answer: string;
   supportingEvidence: EvidenceReference[];
-  missingEvidence: string[];
   referencedNodeIds: string[];
 };
 
